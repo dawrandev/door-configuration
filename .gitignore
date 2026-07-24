@@ -1,0 +1,26 @@
+# dependencies & build output — regenerable
+kiosk/node_modules/
+kiosk/dist/
+node_modules/
+
+# OS / editor
+.DS_Store
+Thumbs.db
+*.log
+
+# Pipeline INPUTS — the raw photographs the tools/ scripts consume. The app runs
+# from the generated assets in kiosk/public/assets/, which ARE committed; these
+# heavy source folders are only needed to RE-RUN the pipeline, and the workshop
+# keeps them locally.
+raw-photos/
+my doors/
+door-handle/
+walls-src/
+wall-scenes/
+rooms/
+demo-doors/
+modern-doors/
+uns-doors/
+
+# contact sheets the tools emit for review
+kiosk/tools/_*.jpg
