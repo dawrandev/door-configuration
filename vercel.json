@@ -1,0 +1,6 @@
+{
+  "$schema": "https://openapi.vercel.sh/vercel.json",
+  "installCommand": "true",
+  "buildCommand": "npm --prefix kiosk install && npm --prefix kiosk run build",
+  "outputDirectory": "kiosk/dist"
+}
