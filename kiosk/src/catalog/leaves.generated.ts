@@ -11,13 +11,12 @@ export const LEAVES: Leaf[] = [
     aspect: 0.3939,
     handleSide: 'left',
     /** false when the leaf still wears the handle it was photographed with */
-    handleSwappable: true,
-    handleAt: { x: 0.1050, y: 0.5300 },
+    handleSwappable: false,
     /** so the bench can reopen and re-cut this door — loaded only when editing */
     source: '/assets/leaves/lattice-src.jpg',
     corners: [{ x: 0.194, y: 0.1097 }, { x: 0.8163, y: 0.1134 }, { x: 0.7899, y: 0.972 }, { x: 0.2028, y: 0.9746 }],
     white: true,
-    handleChoice: 'left',
+    handleChoice: 'none',
   },
   {
     id: 'classic',
@@ -27,13 +26,12 @@ export const LEAVES: Leaf[] = [
     aspect: 0.3972,
     handleSide: 'left',
     /** false when the leaf still wears the handle it was photographed with */
-    handleSwappable: true,
-    handleAt: { x: 0.1036, y: 0.5373 },
+    handleSwappable: false,
     /** so the bench can reopen and re-cut this door — loaded only when editing */
     source: '/assets/leaves/classic-src.jpg',
     corners: [{ x: 0.1775, y: 0.088 }, { x: 0.8135, y: 0.0896 }, { x: 0.7945, y: 0.9673 }, { x: 0.1865, y: 0.9684 }],
     white: true,
-    handleChoice: 'left',
+    handleChoice: 'none',
   },
   {
     id: 'twopanel',
@@ -43,13 +41,12 @@ export const LEAVES: Leaf[] = [
     aspect: 0.3988,
     handleSide: 'left',
     /** false when the leaf still wears the handle it was photographed with */
-    handleSwappable: true,
-    handleAt: { x: 0.1021, y: 0.5350 },
+    handleSwappable: false,
     /** so the bench can reopen and re-cut this door — loaded only when editing */
     source: '/assets/leaves/twopanel-src.jpg',
     corners: [{ x: 0.1901, y: 0.1067 }, { x: 0.8231, y: 0.1072 }, { x: 0.8064, y: 0.966 }, { x: 0.2141, y: 0.9726 }],
     white: true,
-    handleChoice: 'left',
+    handleChoice: 'none',
   },
   {
     id: 'rosette',

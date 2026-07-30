@@ -56,7 +56,7 @@ export function RoomStep() {
                     width: '100%',
                     aspectRatio: '1.25',
                     borderRadius: RADIUS_SM,
-                    background: `#ddd6c8 url(${r.image}) center 28%/cover`,
+                    background: `#ddd6c8 url(${r.thumb ?? r.image}) center 28%/cover`,
                     boxShadow: 'inset 0 0 0 1px rgba(0,0,0,.08)',
                   }}
                 />

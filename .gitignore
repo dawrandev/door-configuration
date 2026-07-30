@@ -12,15 +12,19 @@ Thumbs.db
 # from the generated assets in kiosk/public/assets/, which ARE committed; these
 # heavy source folders are only needed to RE-RUN the pipeline, and the workshop
 # keeps them locally.
-raw-photos/
-my doors/
-door-handle/
-walls-src/
-wall-scenes/
-rooms/
-demo-doors/
-modern-doors/
-uns-doors/
+#
+# Anchored to the repo root with a leading slash: a bare `rooms/` would also
+# ignore kiosk/public/assets/rooms/ — the room images the app SERVES — and that
+# is exactly what left them out of the deploy.
+/raw-photos/
+/my doors/
+/door-handle/
+/walls-src/
+/wall-scenes/
+/rooms/
+/demo-doors/
+/modern-doors/
+/uns-doors/
 
 # contact sheets the tools emit for review
 kiosk/tools/_*.jpg

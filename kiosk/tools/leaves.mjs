@@ -51,9 +51,13 @@ const SHEET = 'd:/laragon/www/door configurator/kiosk/tools/_leaves-contact.jpg'
  * `skip` documents a rejection so the cull is not re-argued later.
  */
 const SOURCES = [
-  { id: 'lattice', file: 'GD8A6670.JPG', white: true, handleSource: true, name: { uz: 'Romb naqsh', kk: 'Romb naqıs', ru: 'Ромб' } },
-  { id: 'classic', file: 'GD8A6656.JPG', white: true, name: { uz: 'Klassik panel', kk: 'Klassik panel', ru: 'Классическая' } },
-  { id: 'twopanel', file: 'GD8A6687.JPG', white: true, name: { uz: 'Ikki panel', kk: 'Eki panel', ru: 'Две филёнки' } },
+  // Handle logic is off for now (a demo decision): every door keeps the handle
+  // it was photographed with — `handle: false` — rather than having it stripped
+  // and a shared one fitted back. `handleSource` still captures the lever asset
+  // so switching the feature back on later needs no re-shoot.
+  { id: 'lattice', file: 'GD8A6670.JPG', white: true, handle: false, handleSource: true, name: { uz: 'Romb naqsh', kk: 'Romb naqıs', ru: 'Ромб' } },
+  { id: 'classic', file: 'GD8A6656.JPG', white: true, handle: false, name: { uz: 'Klassik panel', kk: 'Klassik panel', ru: 'Классическая' } },
+  { id: 'twopanel', file: 'GD8A6687.JPG', white: true, handle: false, name: { uz: 'Ikki panel', kk: 'Eki panel', ru: 'Две филёнки' } },
   // The trace overshoots this one's hinge edge and takes a strip of casing with
   // it: the hallway shot has no strong wall colour, so the fallback separation
   // by contrast cannot tell casing from leaf. The true edge was measured off

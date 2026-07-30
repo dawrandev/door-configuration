@@ -184,7 +184,10 @@ export interface Handle {
 export interface Room {
   id: string;
   name: Tr;
+  /** the stage image: doorway replaced by an unlit recess for a door to fill */
   image: string;
+  /** the chooser image: the untouched photo, door and all — no black recess */
+  thumb?: string;
   /** the photograph's own proportion — width / height */
   aspect: number;
   /** the doorway, as fractions of the image */

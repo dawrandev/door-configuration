@@ -3,7 +3,7 @@ import { COLOR, FONT, RADIUS, TYPE } from '../design/tokens';
 import { LEAVES as BASE_LEAVES } from '../catalog/leaves.generated';
 import { ROOMS as BASE_ROOMS } from '../catalog/rooms.generated';
 import type { Leaf, Room } from '../catalog/types';
-import { DoorBench, Seg } from './DoorBench';
+import { DoorBench } from './DoorBench';
 import { RoomBench } from './RoomBench';
 import {
   mergeLeaves, mergeRooms, editLeaf, editRoom, removeLeaf, removeRoom, restoreLeaf, restoreRoom,
@@ -87,20 +87,14 @@ function DoorCard({ leaf, onEdit }: { leaf: Leaf; onEdit: () => void }) {
   const canReedit = !!leaf.source || !builtIn;
   return (
     <Card>
-      <div style={{ aspectRatio: String(Math.max(0.3, leaf.aspect)), background: '#efece6', borderRadius: 8, overflow: 'hidden', position: 'relative' }}>
-        <img src={leaf.image} alt="" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+      <div style={{ aspectRatio: '0.42', background: '#efece6', borderRadius: 8, overflow: 'hidden', position: 'relative' }}>
+        <img src={leaf.image} alt="" style={{ width: '100%', height: '100%', objectFit: 'contain' }} />
         {builtIn && <span style={badge}>{overridden ? 'tahrirlangan' : 'tayyor'}</span>}
       </div>
       <input value={name} onChange={(e) => setName(e.target.value)} onBlur={() => name !== leaf.name.uz && editLeaf(leaf.id, { name })} style={cardInput} />
-      <div style={{ fontSize: 11, color: '#8f8a83', margin: '8px 0 5px' }}>Tutqich</div>
-      <Seg
-        opts={[{ id: 'left', label: 'Chap' }, { id: 'right', label: 'O‘ng' }, { id: 'none', label: 'Yo‘q' }]}
-        value={leaf.handleSwappable ? leaf.handleSide : 'none'}
-        onPick={(v) => editLeaf(leaf.id, { handleSide: v as 'left' | 'right' | 'none' })}
-      />
       <div style={{ display: 'flex', gap: 8, marginTop: 10 }}>
         {canReedit && <EditBtn onClick={onEdit} />}
-        <DeleteBtn onClick={() => removeLeaf(leaf.id)} kind={!builtIn ? 'delete' : overridden ? 'restore' : 'hide'} />
+        <DeleteBtn onClick={() => removeLeaf(leaf.id)} kind={overridden ? 'restore' : 'delete'} />
       </div>
     </Card>
   );
@@ -113,13 +107,13 @@ function RoomCard({ room, onEdit }: { room: Room; onEdit: () => void }) {
   const canReedit = !!(room as AdminRoom).source || !builtIn;
   return (
     <Card>
-      <div style={{ aspectRatio: '1.2', background: `#ddd6c8 url(${room.image}) center 28%/cover`, borderRadius: 8, position: 'relative' }}>
+      <div style={{ aspectRatio: '1.2', background: `#ddd6c8 url(${room.thumb ?? room.image}) center 28%/cover`, borderRadius: 8, position: 'relative' }}>
         {builtIn && <span style={badge}>{overridden ? 'tahrirlangan' : 'tayyor'}</span>}
       </div>
       <input value={name} onChange={(e) => setName(e.target.value)} onBlur={() => name !== room.name.uz && editRoom(room.id, { name })} style={cardInput} />
       <div style={{ display: 'flex', gap: 8, marginTop: 10 }}>
         {canReedit && <EditBtn onClick={onEdit} />}
-        <DeleteBtn onClick={() => removeRoom(room.id)} kind={!builtIn ? 'delete' : overridden ? 'restore' : 'hide'} />
+        <DeleteBtn onClick={() => removeRoom(room.id)} kind={overridden ? 'restore' : 'delete'} />
       </div>
     </Card>
   );

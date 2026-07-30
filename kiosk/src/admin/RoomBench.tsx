@@ -101,10 +101,14 @@ export function RoomBench({ onDone, edit }: { onDone: () => void; edit?: AdminRo
   const publish = () => {
     if (!img || !box) return;
     const p = processRoom(img, box);
+    // The chooser thumbnail is the room untouched (door and all); the compact
+    // source doubles as it, so no black recess shows on the selection screen.
+    const thumb = source ?? edit?.source ?? p.image;
     saveRoom({
       id: edit?.id ?? 'a-' + Date.now().toString(36),
       name: { uz: name || 'Xona', kk: name || 'Bólme', ru: name || 'Комната' },
       image: p.image,
+      thumb,
       aspect: p.aspect,
       open: box,
       light: p.light,

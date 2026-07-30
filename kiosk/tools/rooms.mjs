@@ -149,6 +149,14 @@ for (const r of ROOMS) {
   const file = path.join(OUT, `${r.id}.jpg`);
   await src.composite([{ input: patch, left: ox, top: oy }]).jpeg({ quality: 92, mozjpeg: true }).toFile(file);
 
+  /**
+   * A second image for the room CHOOSER: the photograph untouched, door and all.
+   * The recess belongs on the stage, where a chosen door covers it — on the
+   * chooser it reads as a black hole punched in a nice room, which looks broken.
+   * There the customer just wants to recognise the room, so it is shown whole.
+   */
+  await sharp(path.join(r.dir ?? SCENE, r.file)).jpeg({ quality: 88, mozjpeg: true }).toFile(path.join(OUT, `${r.id}-thumb.jpg`));
+
   console.log(`✓ ${r.id.padEnd(8)} ${W}x${H}  opening ${ow}x${oh}  light ${light.map((v) => v.toFixed(2)).join('/')}`);
   done.push({ ...r, file, W, H, light });
 }
@@ -164,6 +172,8 @@ ${done
     id: '${r.id}',
     name: { uz: '${r.name.uz}', kk: '${r.name.kk}', ru: '${r.name.ru}' },
     image: '/assets/rooms/${r.id}.jpg',
+    /** the untouched photo, door and all — shown in the room chooser */
+    thumb: '/assets/rooms/${r.id}-thumb.jpg',
     aspect: ${(r.W / r.H).toFixed(5)},
     /** the doorway, as fractions of the image — measured, never estimated */
     open: { x: ${r.open.x}, y: ${r.open.y}, w: ${r.open.w}, h: ${r.open.h} },

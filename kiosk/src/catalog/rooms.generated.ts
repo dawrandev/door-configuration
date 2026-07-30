@@ -7,6 +7,8 @@ export const ROOMS: Room[] = [
     id: 'living',
     name: { uz: 'Yashash xonasi', kk: 'Jasaw bólmesi', ru: 'Гостиная' },
     image: '/assets/rooms/living.jpg',
+    /** the untouched photo, door and all — shown in the room chooser */
+    thumb: '/assets/rooms/living-thumb.jpg',
     aspect: 0.75047,
     /** the doorway, as fractions of the image — measured, never estimated */
     open: { x: 0.28625, y: 0.14869, w: 0.45062, h: 0.77251 },
@@ -17,6 +19,8 @@ export const ROOMS: Room[] = [
     id: 'rose',
     name: { uz: 'Pushti xona', kk: 'Qızğılt bólme', ru: 'Розовая комната' },
     image: '/assets/rooms/rose.jpg',
+    /** the untouched photo, door and all — shown in the room chooser */
+    thumb: '/assets/rooms/rose-thumb.jpg',
     aspect: 0.75117,
     /** the doorway, as fractions of the image — measured, never estimated */
     open: { x: 0.2625, y: 0.10657, w: 0.49812, h: 0.87324 },
@@ -27,6 +31,8 @@ export const ROOMS: Room[] = [
     id: 'bedroom',
     name: { uz: 'Yotoqxona', kk: 'Jatın bólme', ru: 'Спальня' },
     image: '/assets/rooms/bedroom.jpg',
+    /** the untouched photo, door and all — shown in the room chooser */
+    thumb: '/assets/rooms/bedroom-thumb.jpg',
     aspect: 0.75047,
     /** the doorway, as fractions of the image — measured, never estimated */
     open: { x: 0.29812, y: 0.17355, w: 0.42375, h: 0.73124 },
@@ -37,6 +43,8 @@ export const ROOMS: Room[] = [
     id: 'hall',
     name: { uz: 'Kirish xonasi', kk: 'Kiriw bólme', ru: 'Прихожая' },
     image: '/assets/rooms/hall.jpg',
+    /** the untouched photo, door and all — shown in the room chooser */
+    thumb: '/assets/rooms/hall-thumb.jpg',
     aspect: 0.66667,
     /** the doorway, as fractions of the image — measured, never estimated */
     open: { x: 0.29, y: 0.21583, w: 0.40625, h: 0.61167 },
@@ -47,6 +55,8 @@ export const ROOMS: Room[] = [
     id: 'oak',
     name: { uz: 'Eman zal', kk: 'Emen zal', ru: 'Дубовый зал' },
     image: '/assets/rooms/oak.jpg',
+    /** the untouched photo, door and all — shown in the room chooser */
+    thumb: '/assets/rooms/oak-thumb.jpg',
     aspect: 0.55859,
     /** the doorway, as fractions of the image — measured, never estimated */
     open: { x: 0.3513986013986014, y: 0.291015625, w: 0.29545454545454547, h: 0.443359375 },

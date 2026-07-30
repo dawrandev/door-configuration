@@ -22,18 +22,16 @@ function compactSource(el: HTMLImageElement, maxW = 1300): string {
  * exact door in the photo, only squared up. Nothing is generated.
  */
 const LABELS = ['Yuqori chap', 'Yuqori o‘ng', 'Past o‘ng', 'Past chap'];
-const HANDLE_OPTS: { id: 'left' | 'right' | 'none'; label: string }[] = [
-  { id: 'left', label: 'Chapda' },
-  { id: 'right', label: 'O‘ngda' },
-  { id: 'none', label: 'Tegilmasin' },
-];
 
 export function DoorBench({ onDone, edit }: { onDone: () => void; edit?: AdminLeaf }) {
   const [img, setImg] = useState<HTMLImageElement | null>(null);
   const [source, setSource] = useState<string | null>(null);
   const [name, setName] = useState('');
   const [white, setWhite] = useState(true);
-  const [handleSide, setHandleSide] = useState<'left' | 'right' | 'none'>('left');
+  // Handle logic is off for now: doors are shown with the handle they were
+  // photographed with, not stripped and re-fitted. Kept as a constant rather
+  // than deleted so it is one line to switch back on.
+  const handleSide: 'left' | 'right' | 'none' = 'none';
   const [corners, setCorners] = useState<Pt[]>([]);
   const [zoom, setZoom] = useState(1);
   const [result, setResult] = useState<string | null>(null);
@@ -53,7 +51,6 @@ export function DoorBench({ onDone, edit }: { onDone: () => void; edit?: AdminLe
     if (!edit) return;
     setName(edit.name.uz);
     setWhite(edit.white ?? true);
-    setHandleSide(edit.handleChoice ?? edit.handleSide);
     if (!edit.source) return;
     const el = new Image();
     el.onload = () => {
@@ -108,6 +105,31 @@ export function DoorBench({ onDone, edit }: { onDone: () => void; edit?: AdminLe
   };
   const nudge = (i: number, dx: number, dy: number) => setCorners((cs) => cs.map((c, k) => (k === i ? { x: c.x + dx, y: c.y + dy } : c)));
 
+  /**
+   * A live preview at low resolution.
+   *
+   * The whole difficulty of this tool is placing four corners on a door seen at
+   * an angle: a corner a few pixels off the door face pulls a wedge of dark
+   * background into the result, and the fluted panels make any skew glaring. So
+   * the rectify runs continuously at ~300px — cheap enough to redo on every
+   * drag — and the fixed result appears beside the photo as the corners move,
+   * turning "mark, render, discover it is wrong, start over" into "drag until it
+   * looks right". The full-resolution pass stays behind "Tekislab ko‘rish".
+   */
+  const [live, setLive] = useState<string | null>(null);
+  useEffect(() => {
+    if (!img || corners.length !== 4) { setLive(null); return; }
+    const t = window.setTimeout(() => {
+      try {
+        const c = rectify(img, corners as [Pt, Pt, Pt, Pt], 300);
+        stripHandle(c, handleSide);
+        if (white) neutraliseWhite(c);
+        setLive(c.toDataURL('image/jpeg', 0.8));
+      } catch { /* a degenerate quad mid-drag — ignore, the next frame recovers */ }
+    }, 80);
+    return () => window.clearTimeout(t);
+  }, [img, corners, white, handleSide]);
+
   const process = async () => {
     if (!img || corners.length !== 4) return;
     setBusy(true);
@@ -128,21 +150,32 @@ export function DoorBench({ onDone, edit }: { onDone: () => void; edit?: AdminLe
   };
 
   const publish = () => {
-    if (!result || !img) return;
+    if (!img || corners.length !== 4) return;
+    // Render the door at full quality now — publishing no longer waits for a
+    // separate "check" step; the live preview already told the user it is right.
+    const canvas = rectify(img, corners as [Pt, Pt, Pt, Pt]);
+    stripHandle(canvas, handleSide);
+    if (white) neutraliseWhite(canvas);
+    const scale = Math.min(1, 820 / canvas.width);
+    const small = document.createElement('canvas');
+    small.width = Math.round(canvas.width * scale);
+    small.height = Math.round(canvas.height * scale);
+    small.getContext('2d')!.drawImage(canvas, 0, 0, small.width, small.height);
+    const image = small.toDataURL('image/jpeg', 0.82);
+
     const [TL, TR, BR, BL] = corners;
     const topW = Math.hypot(TR.x - TL.x, TR.y - TL.y);
     const botW = Math.hypot(BR.x - BL.x, BR.y - BL.y);
     const hgt = (Math.hypot(BL.x - TL.x, BL.y - TL.y) + Math.hypot(BR.x - TR.x, BR.y - TR.y)) / 2;
     saveLeaf({
-      id: edit?.id ?? 'a-' + Date.now().toString(36), // keep the id when re-editing
+      id: edit?.id ?? 'a-' + Date.now().toString(36),
       name: { uz: name || 'Eshik', kk: name || 'Esik', ru: name || 'Дверь' },
-      image: result,
+      image,
       aspect: +(((topW + botW) / 2) / hgt).toFixed(4),
       handleSide: handleSide === 'none' ? 'left' : handleSide,
       handleSwappable: handleSide !== 'none',
       handleAt: handleSide !== 'none' ? { x: handleSide === 'left' ? 0.09 : 0.91, y: 0.56 } : undefined,
       createdAt: edit?.createdAt ?? Date.now(),
-      // keep the source + marks so it can be reopened and adjusted again
       source: source ?? edit?.source,
       corners: corners.map((c) => ({ x: +(c.x / img.width).toFixed(4), y: +(c.y / img.height).toFixed(4) })),
       white,
@@ -183,12 +216,16 @@ export function DoorBench({ onDone, edit }: { onDone: () => void; edit?: AdminLe
         <div style={{ fontSize: 13, color: '#9d9790', marginBottom: 18, lineHeight: 1.5 }}>Eshik <b>yuzasining</b> 4 burchagini belgilang — ramkani emas, tavaqani.</div>
         {img && (
           <>
+            {/* live result — updates as the corners move, so a bad mark is seen at once */}
+            <Label>Jonli ko‘rinish</Label>
+            <div style={{ display: 'flex', justifyContent: 'center', background: '#141312', borderRadius: RADIUS, padding: 10, minHeight: 150 }}>
+              {live ? <img src={live} alt="" style={{ maxHeight: 240, borderRadius: 4 }} /> : <span style={{ color: '#5c574f', fontSize: 12, alignSelf: 'center' }}>burchaklarni sozlang…</span>}
+            </div>
+
             <Label>Nomi</Label>
             <input value={name} onChange={(e) => setName(e.target.value)} style={inp} placeholder="Masalan: Feruza klassik" />
             <Label>Rangi</Label>
             <Seg opts={[{ id: 't', label: 'Oq bo‘yoq' }, { id: 'f', label: 'Rangli' }]} value={white ? 't' : 'f'} onPick={(v) => setWhite(v === 't')} />
-            <Label>Tutqich</Label>
-            <Seg opts={HANDLE_OPTS} value={handleSide} onPick={(v) => setHandleSide(v as 'left' | 'right' | 'none')} />
             <Label>Kattalashtirish — {(zoom * 100).toFixed(0)}%</Label>
             <input type="range" min={0.08} max={2} step={0.02} value={zoom} onChange={(e) => setZoom(+e.target.value)} style={{ width: '100%' }} />
             <Label>Burchakni aniqlash</Label>
@@ -201,14 +238,15 @@ export function DoorBench({ onDone, edit }: { onDone: () => void; edit?: AdminLe
               ))}
             </div>
             <button onClick={process} disabled={busy} style={{ ...btn, width: '100%', marginTop: 18, background: COLOR.brass, color: '#1b1a18' }}>
-              {busy ? 'Ishlanmoqda…' : 'Tekislab ko‘rish'}
+              {busy ? 'Ishlanmoqda…' : 'Yakuniy sifatda tekshirish'}
             </button>
+            <button onClick={publish} disabled={!live} style={{ ...btn, width: '100%', marginTop: 10, background: '#2fbf71', color: '#0e2417' }}>Katalogga qo‘shish ✓</button>
             {result && (
               <div style={{ marginTop: 14 }}>
+                <div style={{ fontSize: 11, color: '#8f8a83', marginBottom: 6 }}>Yakuniy sifat:</div>
                 <div style={{ display: 'flex', justifyContent: 'center', background: '#141312', borderRadius: RADIUS, padding: 10 }}>
                   <img src={result} alt="" style={{ maxHeight: 300, borderRadius: 4 }} />
                 </div>
-                <button onClick={publish} style={{ ...btn, width: '100%', marginTop: 10, background: '#2fbf71', color: '#0e2417' }}>Katalogga qo‘shish ✓</button>
               </div>
             )}
           </>

@@ -123,15 +123,18 @@ export function DoorStep() {
                     padding: 0,
                     cursor: 'pointer',
                     transition: 'transform .3s cubic-bezier(.22,.61,.36,1), opacity .3s ease',
-                    transform: selected ? 'scale(1)' : 'scale(.88)',
-                    opacity: selected ? 1 : 0.5,
+                    transform: selected ? 'scale(1)' : 'scale(.94)',
+                    opacity: selected ? 1 : 0.55,
                   }}
                 >
                   <div
                     style={{
                       position: 'relative',
                       width: '100%',
-                      aspectRatio: String(l.aspect),
+                      // A FIXED tile shape for every door — not each door's own
+                      // aspect — so the strip is a row of equal boxes; each leaf
+                      // sits inside whole and centred (`contain`), never stretched.
+                      aspectRatio: '0.42',
                       borderRadius: RADIUS,
                       overflow: 'hidden',
                       background: COLOR.paper,
@@ -141,7 +144,7 @@ export function DoorStep() {
                     }}
                   >
                     {/* the very leaf the stage shows, so tile and door are one image */}
-                    <img src={l.image} alt="" draggable={false} style={{ width: '100%', height: '100%', display: 'block' }} />
+                    <img src={l.image} alt="" draggable={false} style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', objectFit: 'contain', display: 'block' }} />
                   </div>
                   <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6, marginTop: 10 }}>
                     {selected && <Ornament width={30} strokeWidth={3.4} />}
