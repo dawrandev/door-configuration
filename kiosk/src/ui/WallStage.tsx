@@ -109,6 +109,26 @@ export function WallStage({ onSwipe, children }: { onSwipe?: (delta: number) => 
         <img src={trimUrl} alt="" draggable={false} style={{ position: 'absolute', left: offX, top: offY, width: dispW, height: dispH, pointerEvents: 'none' }} />
       )}
 
+      {/* The contact shadow: without it a door reads as a sticker on the
+          floor rather than a thing standing on it — no physical object meets
+          a surface without a shadow gathering right where they touch. Darkest
+          at the threshold, fading both in strength and focus as it spreads
+          onto the floor; multiply so it darkens the floor's own colour and
+          grain instead of laying flat grey over it. */}
+      <div
+        style={{
+          position: 'absolute',
+          left: geom.ox - geom.ow * 0.05,
+          top: geom.oy + geom.oh - geom.oh * 0.006,
+          width: geom.ow * 1.1,
+          height: geom.oh * 0.1,
+          background: 'radial-gradient(ellipse 50% 100% at 50% 0%, rgba(0,0,0,.4) 0%, rgba(0,0,0,.22) 35%, rgba(0,0,0,.08) 65%, rgba(0,0,0,0) 90%)',
+          filter: 'blur(2px)',
+          mixBlendMode: 'multiply',
+          pointerEvents: 'none',
+        }}
+      />
+
       {width > 0 && layers.map((l, i) => (
         <DoorLayer key={l.key} leaf={l.leaf} paint={paint} paintKey={colorId} geom={geom} lightTint={lightTint} fade={i === layers.length - 1 && layers.length > 1} />
       ))}
@@ -158,6 +178,10 @@ function DoorLayer({ leaf, paint, paintKey, geom, lightTint, fade }: { leaf: Lea
     <div style={{ position: 'absolute', left: ox, top: oy, width: ow, height: oh, opacity: op, transition: `opacity 340ms ${EASE}`, willChange: 'opacity' }}>
       <img src={url} alt="" draggable={false} style={{ width: '100%', height: '100%', objectFit: 'fill', display: 'block' }} />
       <div style={{ position: 'absolute', inset: 0, background: lightTint, mixBlendMode: 'multiply', pointerEvents: 'none' }} />
+      {/* The other half of the same contact shadow: the door's own base picks
+          up a little of the gloom it is casting, the way a real leaf's bottom
+          rail never reads as brightly lit as its middle. */}
+      <div style={{ position: 'absolute', left: 0, right: 0, bottom: 0, height: '2.5%', background: 'linear-gradient(to bottom, rgba(0,0,0,0), rgba(0,0,0,.22))', mixBlendMode: 'multiply', pointerEvents: 'none' }} />
       {handle && <img src={HANDLE_IMAGE} alt="" draggable={false} style={{ position: 'absolute', ...handle, transformOrigin: 'center', pointerEvents: 'none' }} />}
     </div>
   );
