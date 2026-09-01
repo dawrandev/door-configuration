@@ -208,12 +208,12 @@ export function recolorLeaf(leaf: Leaf, tint: Tint): Promise<string | null> {
  * against the shaft below it. One shared derivation keeps the whole surround
  * reading as one continuous piece of trim, exactly as it physically is.
  *
- * Every box, plus `open`, goes into ONE Path2D filled with the evenodd rule:
- * a point inside a box that ALSO sits inside `open` is crossed twice (even,
- * left unpainted); a point inside a box that never meets `open` is crossed
- * once (odd, painted). That subtracts the doorway from whichever box actually
- * wraps it and leaves every other box untouched, without the code needing to
- * know which box that is.
+ * Every box's outline (plus its own hand-traced inner hole, if it has one)
+ * goes into ONE Path2D with the default nonzero fill rule, so two pieces that
+ * legitimately overlap (a foot block commonly overlaps the shaft it sits
+ * under) still both paint fully. `open` is then punched out afterward as a
+ * SEPARATE erase over the whole union — a floor that keeps the doorway itself
+ * from ever taking paint regardless of what any individual piece traced.
  *
  * The crop is read from `room.thumb` — the untouched photo, door and all —
  * NOT `room.image`. Boxes that border the opening (the shaft ring does, on
@@ -224,13 +224,39 @@ export function recolorLeaf(leaf: Leaf, tint: Tint): Promise<string | null> {
  * version of itself. The thumb has a real, lit photograph in the opening
  * instead of a hole, so the same blur reads a believable neighbour there.
  */
+/** Twice the signed area of a closed loop (shoelace formula) — its SIGN is
+ *  all that's used here: which rotational direction the points wind in. */
+function signedArea(pts: { x: number; y: number }[]): number {
+  let a = 0;
+  for (let i = 0; i < pts.length; i++) {
+    const p = pts[i], q = pts[(i + 1) % pts.length];
+    a += p.x * q.y - q.x * p.y;
+  }
+  return a;
+}
+
+/** `pts`, reversed if needed so its signed area has the same sign as `ref`.
+ *  A hole must wind OPPOSITE its outer loop for the nonzero fill rule to
+ *  cancel it out — but a hand-traced loop can come in clicked in either
+ *  rotational direction, so the winding is corrected here rather than left
+ *  to chance (or explained to whoever is dragging points on a photo). */
+function windLike(pts: { x: number; y: number }[], ref: number): { x: number; y: number }[] {
+  return Math.sign(signedArea(pts)) === Math.sign(ref) ? pts : [...pts].reverse();
+}
+
+function addLoop(path: Path2D, pts: { x: number; y: number }[], w: number, h: number) {
+  path.moveTo(Math.round(pts[0].x * w), Math.round(pts[0].y * h));
+  for (let i = 1; i < pts.length; i++) path.lineTo(Math.round(pts[i].x * w), Math.round(pts[i].y * h));
+  path.closePath();
+}
+
 export function recolorTrim(room: Room, tint: Tint): Promise<string | null> {
   const boxes = room.trimBoxes;
   if (!boxes || !boxes.length) return Promise.resolve(null);
   // The box list is part of the key, not just the room id: a published room's
   // boxes never change at runtime, but the admin bench's live preview edits
   // them on every drag, and a stale cache hit there would show the wrong shape.
-  const boxKey = boxes.map((b) => `${b.x},${b.y},${b.w},${b.h},${b.points?.map((p) => `${p.x},${p.y}`).join(',') ?? ''}`).join(';');
+  const boxKey = boxes.map((b) => `${b.x},${b.y},${b.w},${b.h},${b.points?.map((p) => `${p.x},${p.y}`).join(',') ?? ''},${b.holePoints?.map((p) => `${p.x},${p.y}`).join(',') ?? ''}`).join(';');
   return cached(`trim|${room.id}|${tint.join(',')}|${room.image.length}|${boxKey}`, async () => {
     const img = await loadImage(room.thumb ?? room.image);
     const { canvas, w, h } = drawAt(img, CASING_W);
@@ -264,14 +290,15 @@ export function recolorTrim(room: Room, tint: Tint): Promise<string | null> {
     // the same trim should do.
     const path = new Path2D();
     for (const b of boxes) {
-      if (b.points && b.points.length >= 3) {
-        const [p0, ...rest] = b.points;
-        path.moveTo(Math.round(p0.x * w), Math.round(p0.y * h));
-        for (const p of rest) path.lineTo(Math.round(p.x * w), Math.round(p.y * h));
-        path.closePath();
-      } else {
-        path.rect(Math.round(b.x * w), Math.round(b.y * h), Math.round(b.w * w), Math.round(b.h * h));
-      }
+      const outer: { x: number; y: number }[] =
+        b.points && b.points.length >= 3
+          ? b.points
+          : [{ x: b.x, y: b.y }, { x: b.x + b.w, y: b.y }, { x: b.x + b.w, y: b.y + b.h }, { x: b.x, y: b.y + b.h }];
+      addLoop(path, outer, w, h);
+      // A hand-traced inner edge, wound opposite the outer loop regardless
+      // of which direction it was actually clicked in (see windLike below) —
+      // nonzero fill then reads it as a hole rather than doubling the paint.
+      if (b.holePoints && b.holePoints.length >= 3) addLoop(path, windLike(b.holePoints, -signedArea(outer)), w, h);
     }
     octx.save();
     octx.clip(path);

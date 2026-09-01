@@ -52,6 +52,14 @@ interface TrimBox {
    * point.
    */
   points: Point[];
+  /**
+   * An optional, separately hand-traced inner edge — a cutout, for a piece
+   * shaped like a ring (the shaft, almost always). Undefined means "rely on
+   * the doorway rectangle instead", which is only ever a guess at where the
+   * casing's own inner lip sits in the photograph. Present, it is edited
+   * with the exact same independent-point tool as the outer edge.
+   */
+  holePoints?: Point[];
 }
 
 /** The smallest rect containing every point — `points`' bounding box. */
@@ -177,20 +185,26 @@ function defaultRectFor(role: TrimRole, open: Rect, trim: TrimBox[]): Rect {
  * Purely a starting label for editing; once republished, trimRoles is real
  * and this never runs again for that room.
  */
-type StoredTrim = Rect & { points?: Point[] };
+type StoredTrim = Rect & { points?: Point[]; holePoints?: Point[] };
 
-/** What a piece publishes: its bbox, plus its real outline. */
+/** What a piece publishes: its bbox, its real outline, and its inner cut
+ *  when it has one. */
 function toStoredBox(t: TrimBox): StoredTrim {
-  return { ...t.rect, points: t.points };
+  return { ...t.rect, points: t.points, holePoints: t.holePoints };
 }
 
 /** Build a bench TrimBox from whatever a room stored. Older data (saved
  *  before free points existed) has no `points` — seeded from its rect, same
  *  as a brand-new piece, so it opens as 4 draggable corners rather than
- *  erroring. */
+ *  erroring. `holePoints` stays undefined unless the room actually has one —
+ *  it is never assumed. */
 function toTrimBox(id: string, role: TrimRole, label: string | undefined, box: StoredTrim): TrimBox {
   const rect = { x: box.x, y: box.y, w: box.w, h: box.h };
-  return { id, role, label, rect, points: box.points && box.points.length >= 3 ? box.points : seedPoints(rect) };
+  return {
+    id, role, label, rect,
+    points: box.points && box.points.length >= 3 ? box.points : seedPoints(rect),
+    holePoints: box.holePoints && box.holePoints.length >= 3 ? box.holePoints : undefined,
+  };
 }
 
 function inferRoles(boxes: StoredTrim[]): TrimBox[] {
@@ -241,8 +255,9 @@ export function RoomBench({ onDone, edit }: { onDone: () => void; edit?: AdminRo
 
   const wrapRef = useRef<HTMLDivElement>(null);
   /** The doorway drags as a true rectangle (a real opening is one); a trim
-   *  piece drags one point of its outline at a time, by index. */
-  const drag = useRef<{ kind: 'corner'; corner: Corner } | { kind: 'point'; trimId: string; index: number } | null>(null);
+   *  piece drags one point of its outer OR inner (hole) outline at a time,
+   *  by index — `loop` says which. */
+  const drag = useRef<{ kind: 'corner'; corner: Corner } | { kind: 'point'; trimId: string; loop: 'points' | 'holePoints'; index: number } | null>(null);
 
   useEffect(() => {
     if (!edit) return;
@@ -293,15 +308,16 @@ export function RoomBench({ onDone, edit }: { onDone: () => void; edit?: AdminRo
     if (d.kind === 'corner') {
       setBox((b) => (b ? resizeCorner(b, d.corner, p) : b));
     } else {
-      const { trimId, index } = d;
+      const { trimId, loop, index } = d;
       const cx = Math.min(Math.max(0, p.x), 1), cy = Math.min(Math.max(0, p.y), 1);
       setTrim((ts) => ts.map((t) => {
         if (t.id !== trimId) return t;
         // ONLY this one point moves — every other point of the outline stays
         // exactly where it was, which is the entire point of a free polygon
         // over a rectangle's coupled opposite-corner behaviour.
-        const points = t.points.map((pt, i) => (i === index ? { x: cx, y: cy } : pt));
-        return { ...t, points, rect: bboxOfPoints(points) };
+        const source = t[loop] ?? [];
+        const updated = source.map((pt, i) => (i === index ? { x: cx, y: cy } : pt));
+        return loop === 'points' ? { ...t, points: updated, rect: bboxOfPoints(updated) } : { ...t, holePoints: updated };
       }));
     }
   };
@@ -311,14 +327,17 @@ export function RoomBench({ onDone, edit }: { onDone: () => void; edit?: AdminRo
     setBox((b) => (b ? (kind === 'move' ? { ...b, x: b.x + fx, y: b.y + fy } : { ...b, w: b.w + fx, h: b.h + fy }) : b));
   };
   /** A trim piece only ever nudges by MOVING — translating every point
-   *  together. There is no single "size" for a free outline. */
+   *  together, outer edge and inner hole alike (nudging repositions the
+   *  whole piece, it doesn't reshape it). There is no single "size" for a
+   *  free outline. */
   const nudgeTrim = (trimId: string, dx: number, dy: number) => {
     if (!img) return;
     const fx = dx / img.width, fy = dy / img.height;
+    const shift = (pts: Point[]) => pts.map((p) => ({ x: p.x + fx, y: p.y + fy }));
     setTrim((ts) => ts.map((t) => {
       if (t.id !== trimId) return t;
-      const points = t.points.map((p) => ({ x: p.x + fx, y: p.y + fy }));
-      return { ...t, points, rect: bboxOfPoints(points) };
+      const points = shift(t.points);
+      return { ...t, points, rect: bboxOfPoints(points), holePoints: t.holePoints && shift(t.holePoints) };
     }));
   };
 
@@ -334,31 +353,51 @@ export function RoomBench({ onDone, edit }: { onDone: () => void; edit?: AdminRo
     setTrim((ts) => ts.filter((t) => t.id !== id));
     setActiveTrimId((a) => (a === id ? null : a));
   };
-  const removePoint = (trimId: string, index: number) => {
+  /** The inner (hole) edge is opt-in per piece, off by default — most
+   *  pieces (a crown, a foot block) are solid and have no inner edge to
+   *  trace. Turning it on seeds a starting quad from the doorway box, same
+   *  as a fresh outer edge starts from a rough rect; turning it off drops
+   *  the trace entirely rather than remembering it, so it stays a clean
+   *  yes/no rather than a hidden, possibly-stale shape. */
+  const toggleHole = (trimId: string) => {
+    if (!box) return;
+    setTrim((ts) => ts.map((t) => (t.id === trimId ? { ...t, holePoints: t.holePoints ? undefined : seedPoints(box) } : t)));
+  };
+  const removePoint = (trimId: string, loop: 'points' | 'holePoints', index: number) => {
     setTrim((ts) => ts.map((t) => {
-      if (t.id !== trimId || t.points.length <= 3) return t;
-      const points = t.points.filter((_, i) => i !== index);
-      return { ...t, points, rect: bboxOfPoints(points) };
+      const source = t[loop];
+      if (t.id !== trimId || !source || source.length <= 3) return t;
+      const updated = source.filter((_, i) => i !== index);
+      return loop === 'points' ? { ...t, points: updated, rect: bboxOfPoints(updated) } : { ...t, holePoints: updated };
     }));
   };
-  /** Click near the outline (not on an existing handle) inserts a new point
-   *  on the nearest edge and starts dragging it — the same "click the line to
-   *  add an anchor" gesture a vector-path tool uses. One click is enough;
-   *  it does not wait for a second. */
+  /** Click near an outline (not on an existing handle) inserts a new point
+   *  on the nearest edge and starts dragging it — the same "click the line
+   *  to add an anchor" gesture a vector-path tool uses. One click is
+   *  enough; it does not wait for a second. When a piece has both an outer
+   *  edge and an inner hole on screen, the click goes to whichever edge it
+   *  actually landed closest to. */
   const onAddPoint = (e: React.PointerEvent) => {
     if (drag.current) return; // a handle's own onPointerDown already claimed this gesture
     const active = trim.find((t) => t.id === activeTrimId);
     if (!active) return;
     const p = toFrac(e.clientX, e.clientY);
     const cx = Math.min(Math.max(0, p.x), 1), cy = Math.min(Math.max(0, p.y), 1);
-    const idx = insertIndexForPoint(active.points, { x: cx, y: cy });
+    const outerIdx = insertIndexForPoint(active.points, { x: cx, y: cy });
+    const outerDist = distToSegment({ x: cx, y: cy }, active.points[(outerIdx - 1 + active.points.length) % active.points.length], active.points[outerIdx % active.points.length]);
+    const hole = active.holePoints;
+    const holeIdx = hole ? insertIndexForPoint(hole, { x: cx, y: cy }) : -1;
+    const holeDist = hole ? distToSegment({ x: cx, y: cy }, hole[(holeIdx - 1 + hole.length) % hole.length], hole[holeIdx % hole.length]) : Infinity;
+    const loop: 'points' | 'holePoints' = hole && holeDist < outerDist ? 'holePoints' : 'points';
+    const idx = loop === 'holePoints' ? holeIdx : outerIdx;
     setTrim((ts) => ts.map((t) => {
       if (t.id !== active.id) return t;
-      const points = [...t.points.slice(0, idx), { x: cx, y: cy }, ...t.points.slice(idx)];
-      return { ...t, points, rect: bboxOfPoints(points) };
+      const source = t[loop] ?? [];
+      const updated = [...source.slice(0, idx), { x: cx, y: cy }, ...source.slice(idx)];
+      return loop === 'points' ? { ...t, points: updated, rect: bboxOfPoints(updated) } : { ...t, holePoints: updated };
     }));
     (e.target as Element).setPointerCapture(e.pointerId);
-    drag.current = { kind: 'point', trimId: active.id, index: idx };
+    drag.current = { kind: 'point', trimId: active.id, loop, index: idx };
   };
 
   // Live trim preview — the exact function the showroom uses, on a draft room
@@ -459,15 +498,38 @@ export function RoomBench({ onDone, edit }: { onDone: () => void; edit?: AdminRo
                     stroke={ROLE_META[activeTrim.role].color}
                     strokeWidth={2}
                   />
+                  {/* The inner (hole) edge — dashed, so it reads as "cut out of"
+                      the solid outer edge rather than a second identical piece. */}
+                  {activeTrim.holePoints && (
+                    <polygon
+                      points={activeTrim.holePoints.map((p) => `${p.x * dispW},${p.y * dispH}`).join(' ')}
+                      fill="rgba(255,255,255,.28)"
+                      stroke={ROLE_META[activeTrim.role].color}
+                      strokeWidth={2}
+                      strokeDasharray="6 5"
+                    />
+                  )}
                 </svg>
                 {activeTrim.points.map((p, i) => (
                   <Handle
-                    key={i}
+                    key={`o${i}`}
                     x={p.x * dispW}
                     y={p.y * dispH}
                     color={ROLE_META[activeTrim.role].color}
-                    onPointerDown={(e) => { e.stopPropagation(); (e.target as Element).setPointerCapture(e.pointerId); drag.current = { kind: 'point', trimId: activeTrim.id, index: i }; }}
-                    onDoubleClick={() => removePoint(activeTrim.id, i)}
+                    onPointerDown={(e) => { e.stopPropagation(); (e.target as Element).setPointerCapture(e.pointerId); drag.current = { kind: 'point', trimId: activeTrim.id, loop: 'points', index: i }; }}
+                    onDoubleClick={() => removePoint(activeTrim.id, 'points', i)}
+                  />
+                ))}
+                {/* Same colour as the outer handles — the dashed connecting
+                    lines already say which loop a point belongs to. */}
+                {activeTrim.holePoints?.map((p, i) => (
+                  <Handle
+                    key={`h${i}`}
+                    x={p.x * dispW}
+                    y={p.y * dispH}
+                    color={ROLE_META[activeTrim.role].color}
+                    onPointerDown={(e) => { e.stopPropagation(); (e.target as Element).setPointerCapture(e.pointerId); drag.current = { kind: 'point', trimId: activeTrim.id, loop: 'holePoints', index: i }; }}
+                    onDoubleClick={() => removePoint(activeTrim.id, 'holePoints', i)}
                   />
                 ))}
               </>
@@ -557,6 +619,19 @@ export function RoomBench({ onDone, edit }: { onDone: () => void; edit?: AdminRo
                               siljiydi. Chiziq bo‘ylab <b>bir marta bosib</b> yangi nuqta qo‘shing.
                               Nuqtani <b>ikki marta bosish</b> uni o‘chiradi (kamida 3 ta nuqta qolishi kerak).
                             </div>
+
+                            <label style={{ display: 'flex', alignItems: 'center', gap: 8, minHeight: TOUCH_MIN, marginTop: 6, fontSize: 12, color: COLOR.ink, cursor: 'pointer' }}>
+                              <input type="checkbox" checked={!!t.holePoints} onChange={() => toggleHole(t.id)} />
+                              Ichki chegarani ham (qo‘lda) belgilash
+                            </label>
+                            {t.holePoints && (
+                              <div style={{ fontSize: 11, color: COLOR.inkSoft, lineHeight: 1.5, marginBottom: 6 }}>
+                                Kesilgan chiziq — nalichnikning eshikka qaragan ICHKI cheti. Xuddi
+                                tashqi chetdek, suratdagi haqiqiy chiziqqa mos qilib torting —
+                                taxminiy o‘lcham emas, o‘zingiz aniq belgilaysiz.
+                              </div>
+                            )}
+
                             <div style={{ marginTop: 8 }}>
                               <MoveResize onMove={(dx, dy) => nudgeTrim(t.id, dx, dy)} onSize={() => {}} sizeless />
                             </div>

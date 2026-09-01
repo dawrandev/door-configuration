@@ -224,8 +224,19 @@ export interface Room {
    * wound clockwise from top-left) and wins over the plain rectangle — a
    * moulded crown is rarely a clean box, and a rectangle over it paints the
    * wall on either side along with the moulding.
+   *
+   * `holePoints`, when present, is a SECOND traced outline — the piece's
+   * inner edge, cut out of the first. A ring-shaped piece (the shaft is the
+   * usual case) is not reliably just "outer polygon minus the doorway": the
+   * doorway rectangle is a guess at where the opening is, not a measurement
+   * of where the casing's own inner lip actually sits in the photograph, and
+   * a photo shot at any angle lets the two disagree by a visible sliver.
+   * `open` is still subtracted afterward regardless, as a floor that keeps
+   * the door itself from ever taking paint — `holePoints` is what lets the
+   * inner edge be traced to match the real photograph instead of trusting
+   * that guess.
    */
-  trimBoxes?: { x: number; y: number; w: number; h: number; points?: { x: number; y: number }[] }[];
+  trimBoxes?: { x: number; y: number; w: number; h: number; points?: { x: number; y: number }[]; holePoints?: { x: number; y: number }[] }[];
   /**
    * The bench needs this to REOPEN a room and re-mark its doorway/trim — the
    * same reason Leaf keeps `source`. `thumb` already IS this photo (untouched,
