@@ -1,13 +1,12 @@
 #!/usr/bin/env bash
-# Serverda ishga tushiriladigan skript. Bu fayl "deploy" branch bilan birga
-# keladi (build natijasi qatorida), shuning uchun har "git reset --hard"dan
-# keyin ham joyida qoladi.
+# Runs on the server. Ships alongside the build output on the "deploy"
+# branch, so it survives every "git reset --hard".
 #
-# Birinchi marta (bir martalik, qo'lda, serverda mos papka ichida):
-#   git clone -b deploy --single-branch https://github.com/dawrandev/door-configuration.git eshik
+# One-time setup (manual, over SSH, inside the target folder):
+#   git clone -b deploy --single-branch https://github.com/dawrandev/door-configuration.git door
 #
-# Shundan keyin, har safar loyihada o'zgarish bo'lib, u qayta push qilinganda,
-# shu papka ichida (masalan "eshik/") shuni ishga tushirasiz:
+# After that, every time the "deploy" branch is updated, run this inside
+# that folder (e.g. "door/"):
 #   bash server-deploy.sh
 set -euo pipefail
 cd "$(dirname "${BASH_SOURCE[0]}")"
@@ -16,4 +15,4 @@ git fetch origin deploy
 git reset --hard origin/deploy
 git clean -fd
 
-echo "Yangilandi: $(git log -1 --format='%ci')"
+echo "Updated: $(git log -1 --format='%ci')"
