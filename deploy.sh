@@ -34,6 +34,7 @@ echo "==> 1/3 Building (base=$BASE_PATH)..."
 echo "==> 2/3 Preparing '$DEPLOY_BRANCH' branch (build output only, no history)..."
 WORKTREE="$SCRIPT_DIR/.deploy-worktree"
 rm -rf "$WORKTREE"
+git branch -D "$DEPLOY_BRANCH" >/dev/null 2>&1 || true
 git worktree add --detach "$WORKTREE" >/dev/null
 (
   cd "$WORKTREE"
