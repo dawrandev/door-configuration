@@ -104,7 +104,7 @@ function DoorCard({ leaf, onEdit }: { leaf: Leaf; onEdit: () => void }) {
   const canReedit = !!leaf.source || !builtIn;
   return (
     <Card>
-      <div style={{ height: THUMB_H, background: COLOR.paper, borderRadius: RADIUS_SM, overflow: 'hidden', position: 'relative' }}>
+      <div style={{ aspectRatio: THUMB_RATIO, background: COLOR.paper, borderRadius: RADIUS_SM, overflow: 'hidden', position: 'relative' }}>
         <img src={leaf.image} alt="" style={{ width: '100%', height: '100%', objectFit: 'contain' }} />
         {builtIn ? <span style={badge}>{overridden ? 'tahrirlangan' : 'tayyor'}</span> : <span style={badgeAdded}>qo‘shilgan</span>}
       </div>
@@ -124,7 +124,7 @@ function RoomCard({ room, onEdit }: { room: Room; onEdit: () => void }) {
   const canReedit = !!(room as AdminRoom).source || !builtIn;
   return (
     <Card>
-      <div style={{ height: THUMB_H, background: `${COLOR.panel} url(${room.thumb ?? room.image}) center 28%/cover`, borderRadius: RADIUS_SM, position: 'relative' }}>
+      <div style={{ aspectRatio: THUMB_RATIO, background: `${COLOR.panel} url(${room.thumb ?? room.image}) center 28%/cover`, borderRadius: RADIUS_SM, position: 'relative' }}>
         {builtIn ? <span style={badge}>{overridden ? 'tahrirlangan' : 'tayyor'}</span> : <span style={badgeAdded}>qo‘shilgan</span>}
       </div>
       <input value={name} onChange={(e) => setName(e.target.value)} onBlur={() => name !== room.name.uz && editRoom(room.id, { name })} style={cardInput} />
@@ -139,7 +139,7 @@ function RoomCard({ room, onEdit }: { room: Room; onEdit: () => void }) {
 function HiddenCard({ label, onRestore }: { label: string; onRestore: () => void }) {
   return (
     <Card>
-      <div style={{ height: THUMB_H, background: COLOR.paper, borderRadius: RADIUS_SM, display: 'flex', alignItems: 'center', justifyContent: 'center', color: COLOR.inkSoft, fontSize: 13 }}>Yashirilgan</div>
+      <div style={{ aspectRatio: THUMB_RATIO, background: COLOR.paper, borderRadius: RADIUS_SM, display: 'flex', alignItems: 'center', justifyContent: 'center', color: COLOR.inkSoft, fontSize: 13 }}>Yashirilgan</div>
       <div style={{ ...TYPE.small, color: COLOR.inkSoft, marginTop: 8 }}>{label}</div>
       <button onClick={onRestore} style={ghostBtn}>Qaytarish</button>
     </Card>
@@ -158,10 +158,12 @@ function EmptyState({ label }: { label: string }) {
 function Shell({ children }: { children: React.ReactNode }) {
   return <div style={{ position: 'fixed', inset: 0, display: 'flex', background: COLOR.paper, color: COLOR.ink, fontFamily: FONT.sans }}>{children}</div>;
 }
-/** Shared thumbnail height so a door card and a room card occupy the same
+/** Shared thumbnail ratio so a door card and a room card occupy the same
  *  footprint — switching tabs otherwise jumps between a tall strip and a
- *  short one, which reads as two different tools bolted together. */
-const THUMB_H = 200;
+ *  short one, which reads as two different tools bolted together. Doors
+ *  set the size (their own natural, tall proportion); rooms crop into it
+ *  via their existing cover-fit background instead of shrinking down. */
+const THUMB_RATIO = '0.42';
 function Grid({ children }: { children: React.ReactNode }) {
   return <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(200px, 1fr))', gap: 18 }}>{children}</div>;
 }
