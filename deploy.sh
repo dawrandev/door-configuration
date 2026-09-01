@@ -29,7 +29,10 @@ if [[ -n "$(git status --porcelain)" ]]; then
 fi
 
 echo "==> 1/3 Building (base=$BASE_PATH)..."
-(cd kiosk && npx tsc -b && npx vite build --base="$BASE_PATH")
+# MSYS_NO_PATHCONV: without it, Git Bash on Windows rewrites the leading
+# "/" in --base=/door/ into an absolute Windows path (e.g.
+# C:\Program Files\Git\door\), silently corrupting every asset URL.
+(cd kiosk && npx tsc -b && MSYS_NO_PATHCONV=1 npx vite build --base="$BASE_PATH")
 
 echo "==> 2/3 Preparing '$DEPLOY_BRANCH' branch (build output only, no history)..."
 WORKTREE="$SCRIPT_DIR/.deploy-worktree"
