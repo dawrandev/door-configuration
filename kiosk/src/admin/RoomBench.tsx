@@ -308,7 +308,7 @@ export function RoomBench({ onDone, edit }: { onDone: () => void; edit?: AdminRo
         {img && box && (
           <div
             ref={wrapRef}
-            style={{ position: 'relative', width: dispW, height: dispH, touchAction: 'none' }}
+            style={{ position: 'relative', width: dispW, height: dispH, flexShrink: 0, touchAction: 'none' }}
             onPointerMove={onMove}
             onPointerUp={() => (drag.current = null)}
           >

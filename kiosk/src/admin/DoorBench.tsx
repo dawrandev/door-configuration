@@ -240,7 +240,7 @@ export function DoorBench({ onDone, edit }: { onDone: () => void; edit?: AdminLe
           </label>
         )}
         {img && (
-          <div ref={wrapRef} style={{ position: 'relative', width: dispW, height: dispH, touchAction: 'none' }} onPointerMove={onMove} onPointerUp={() => (drag.current = null)}>
+          <div ref={wrapRef} style={{ position: 'relative', width: dispW, height: dispH, flexShrink: 0, touchAction: 'none' }} onPointerMove={onMove} onPointerUp={() => (drag.current = null)}>
             <img src={img.src} alt="" draggable={false} style={{ width: '100%', height: '100%', display: 'block', userSelect: 'none' }} />
             <svg style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', pointerEvents: 'none' }}>
               <polygon points={corners.map((c) => `${c.x * zoom},${c.y * zoom}`).join(' ')} fill="rgba(143,113,69,.16)" stroke={COLOR.brass} strokeWidth={2} />
