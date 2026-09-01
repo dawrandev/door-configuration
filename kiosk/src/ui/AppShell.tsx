@@ -1,5 +1,5 @@
 import type { ReactNode } from 'react';
-import { COLOR } from '../design/tokens';
+import { COLOR, TOUCH_MIN } from '../design/tokens';
 
 /**
  * The app shell.
@@ -41,8 +41,8 @@ function AdminEntry() {
         position: 'fixed',
         right: 0,
         bottom: 0,
-        width: 40,
-        height: 40,
+        width: TOUCH_MIN,
+        height: TOUCH_MIN,
         display: 'flex',
         alignItems: 'center',
         justifyContent: 'center',

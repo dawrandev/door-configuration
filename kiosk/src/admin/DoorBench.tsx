@@ -278,9 +278,9 @@ export function DoorBench({ onDone, edit }: { onDone: () => void; edit?: AdminLe
                     key={c.id}
                     onClick={() => toggleColor(c.id)}
                     style={{
-                      display: 'flex', alignItems: 'center', gap: 6, padding: '6px 10px 6px 6px', borderRadius: 999, fontFamily: 'inherit',
+                      display: 'flex', alignItems: 'center', gap: 7, minHeight: TOUCH_MIN, padding: '6px 14px 6px 8px', borderRadius: 999, fontFamily: 'inherit',
                       border: `1px solid ${on ? COLOR.brass : COLOR.lineStrong}`, background: on ? 'rgba(143,113,69,.1)' : 'transparent',
-                      color: COLOR.ink, fontSize: 12, cursor: 'pointer',
+                      color: COLOR.ink, fontSize: 13, cursor: 'pointer',
                     }}
                   >
                     <span style={{ width: 18, height: 18, borderRadius: 999, background: c.hex, boxShadow: `inset 0 0 0 1px ${COLOR.lineStrong}`, flex: '0 0 auto' }} />
@@ -294,11 +294,11 @@ export function DoorBench({ onDone, edit }: { onDone: () => void; edit?: AdminLe
                 type="color"
                 value={/^#[0-9a-fA-F]{6}$/.test(newColorHex) ? newColorHex : '#8F7145'}
                 onChange={(e) => setNewColorHex(e.target.value)}
-                style={{ width: 34, height: 34, padding: 0, border: `1px solid ${COLOR.lineStrong}`, borderRadius: RADIUS_SM, background: 'none', cursor: 'pointer' }}
+                style={{ width: TOUCH_MIN, height: TOUCH_MIN, padding: 0, border: `1px solid ${COLOR.lineStrong}`, borderRadius: RADIUS_SM, background: 'none', cursor: 'pointer', flex: '0 0 auto' }}
               />
               <input value={newColorHex} onChange={(e) => setNewColorHex(e.target.value)} style={{ ...inp, margin: 0, width: 90 }} placeholder="#8F7145" />
               <input value={newColorName} onChange={(e) => setNewColorName(e.target.value)} style={{ ...inp, margin: 0, flex: 1 }} placeholder="Rang nomi" />
-              <button onClick={addColor} style={{ ...ghostBtn, width: 'auto', margin: 0, minHeight: 38, padding: '0 14px', fontSize: 13 }}>+ Qo‘shish</button>
+              <button onClick={addColor} style={{ ...ghostBtn, width: 'auto', margin: 0, minHeight: TOUCH_MIN, padding: '0 14px', fontSize: 13 }}>+ Qo‘shish</button>
             </div>
 
             <Label>Kattalashtirish — {(zoom * 100).toFixed(0)}%</Label>
@@ -361,12 +361,14 @@ export function DimHUD({ rect, w, h }: { rect: { x: number; y: number; w: number
     </div>
   );
 }
-export const inp: React.CSSProperties = { width: '100%', marginTop: 6, padding: '9px 10px', borderRadius: RADIUS_SM, background: '#fff', color: COLOR.ink, border: `1px solid ${COLOR.lineStrong}`, fontSize: 13, fontFamily: 'inherit' };
+export const inp: React.CSSProperties = { width: '100%', minHeight: TOUCH_MIN, marginTop: 6, padding: '9px 10px', borderRadius: RADIUS_SM, background: '#fff', color: COLOR.ink, border: `1px solid ${COLOR.lineStrong}`, fontSize: 13, fontFamily: 'inherit', boxSizing: 'border-box' };
 /** Primary commit action — same ink-on-limestone button the showroom itself uses. */
 export const primaryBtn: React.CSSProperties = { width: '100%', marginTop: 10, minHeight: 46, padding: '0 10px', borderRadius: RADIUS, border: 'none', background: COLOR.ink, color: COLOR.onInk, cursor: 'pointer', fontWeight: 600, fontSize: 14, fontFamily: 'inherit' };
 /** Secondary action — outline only, never competes with the one commit button. */
 export const ghostBtn: React.CSSProperties = { width: '100%', marginTop: 18, minHeight: 46, padding: '0 10px', borderRadius: RADIUS, border: `1px solid ${COLOR.lineStrong}`, background: 'transparent', color: COLOR.ink, cursor: 'pointer', fontWeight: 600, fontSize: 14, fontFamily: 'inherit' };
-export const linkBtn: React.CSSProperties = { background: 'none', border: 'none', color: COLOR.inkSoft, cursor: 'pointer', fontSize: 13, padding: 0, fontFamily: 'inherit' };
+/** A text-scaled link, but a real touch target underneath — a bare 13px
+ *  line of text is what a mouse cursor forgives and a finger does not. */
+export const linkBtn: React.CSSProperties = { display: 'inline-flex', alignItems: 'center', minHeight: TOUCH_MIN, background: 'none', border: 'none', color: COLOR.inkSoft, cursor: 'pointer', fontSize: 13, padding: '0 4px', margin: '0 -4px', fontFamily: 'inherit' };
 export function Panel({ children }: { children: React.ReactNode }) {
   return <div style={{ width: 380, flex: '0 0 380px', height: '100%', overflowY: 'auto', padding: 24, background: '#fff', borderLeft: `1px solid ${COLOR.line}`, fontFamily: FONT.sans }}>{children}</div>;
 }
@@ -383,7 +385,7 @@ export function Seg({ opts, value, onPick }: { opts: { id: string; label: string
             key={o.id}
             onClick={() => onPick(o.id)}
             style={{
-              flex: 1, padding: '9px 6px', borderRadius: RADIUS_SM, cursor: 'pointer', fontSize: 13, fontFamily: 'inherit',
+              flex: 1, minHeight: TOUCH_MIN, padding: '9px 6px', borderRadius: RADIUS_SM, cursor: 'pointer', fontSize: 13, fontFamily: 'inherit',
               background: on ? 'rgba(143,113,69,.1)' : 'transparent', color: COLOR.ink,
               border: `1px solid ${on ? COLOR.brass : COLOR.lineStrong}`, fontWeight: on ? 600 : 400,
             }}
@@ -397,7 +399,7 @@ export function Seg({ opts, value, onPick }: { opts: { id: string; label: string
 }
 function Pad({ onNudge }: { onNudge: (dx: number, dy: number) => void }) {
   const b = (t: string, dx: number, dy: number) => (
-    <button onClick={() => onNudge(dx, dy)} style={{ background: '#fff', border: `1px solid ${COLOR.lineStrong}`, borderRadius: RADIUS_SM, color: COLOR.ink, cursor: 'pointer', fontSize: 10, padding: '4px 0' }}>{t}</button>
+    <button onClick={() => onNudge(dx, dy)} style={{ background: '#fff', border: `1px solid ${COLOR.lineStrong}`, borderRadius: RADIUS_SM, color: COLOR.ink, cursor: 'pointer', fontSize: 13, minHeight: 40, padding: 0 }}>{t}</button>
   );
   return (
     <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3,1fr)', gap: 3 }}>

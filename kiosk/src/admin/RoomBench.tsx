@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { COLOR, RADIUS, RADIUS_SM, TYPE } from '../design/tokens';
+import { COLOR, RADIUS, RADIUS_SM, TOUCH_MIN, TYPE } from '../design/tokens';
 import { processRoom, type Rect } from './roomProcess';
 import { saveRoom, type AdminRoom, type TrimRole } from './adminStore';
 import { Panel, Label, inp, primaryBtn, ghostBtn, linkBtn, Handle, DimHUD } from './DoorBench';
@@ -525,7 +525,7 @@ export function RoomBench({ onDone, edit }: { onDone: () => void; edit?: AdminRo
                   <div key={t.id} style={{ marginTop: 6 }}>
                     <div
                       onClick={() => setActiveTrimId(active ? null : t.id)}
-                      style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '7px 9px', borderRadius: RADIUS_SM, background: active ? 'rgba(143,113,69,.08)' : COLOR.paper, border: `1px solid ${active ? meta.color : COLOR.line}`, cursor: 'pointer' }}
+                      style={{ display: 'flex', alignItems: 'center', gap: 8, minHeight: TOUCH_MIN, padding: '7px 9px', borderRadius: RADIUS_SM, background: active ? 'rgba(143,113,69,.08)' : COLOR.paper, border: `1px solid ${active ? meta.color : COLOR.line}`, cursor: 'pointer' }}
                     >
                       <span style={{ width: 11, height: 11, borderRadius: 999, background: meta.color, flex: '0 0 auto' }} />
                       {t.role === 'extra' ? (
@@ -540,7 +540,7 @@ export function RoomBench({ onDone, edit }: { onDone: () => void; edit?: AdminRo
                       )}
                       <button
                         onClick={(e) => { e.stopPropagation(); removeTrim(t.id); }}
-                        style={{ background: 'none', border: 'none', color: '#A6432C', cursor: 'pointer', fontSize: 15, lineHeight: 1, padding: '2px 4px' }}
+                        style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', width: 40, height: 40, flex: '0 0 auto', background: 'none', border: 'none', color: '#A6432C', cursor: 'pointer', fontSize: 16, lineHeight: 1, padding: 0 }}
                         aria-label="O‘chirish"
                       >
                         ✕
@@ -585,9 +585,9 @@ function RoleChip({ label, color, disabled, onClick }: { label: string; color: s
       onClick={onClick}
       disabled={disabled}
       style={{
-        display: 'flex', alignItems: 'center', gap: 6, padding: '7px 12px', borderRadius: 999, fontFamily: 'inherit',
+        display: 'flex', alignItems: 'center', gap: 7, minHeight: TOUCH_MIN, padding: '7px 14px', borderRadius: 999, fontFamily: 'inherit',
         border: `1px solid ${disabled ? COLOR.line : color}`, background: 'transparent',
-        color: disabled ? COLOR.inkSoft : COLOR.ink, fontSize: 12, cursor: disabled ? 'default' : 'pointer', opacity: disabled ? 0.5 : 1,
+        color: disabled ? COLOR.inkSoft : COLOR.ink, fontSize: 13, cursor: disabled ? 'default' : 'pointer', opacity: disabled ? 0.5 : 1,
       }}
     >
       <span style={{ width: 8, height: 8, borderRadius: 999, background: color }} />
@@ -598,7 +598,7 @@ function RoleChip({ label, color, disabled, onClick }: { label: string; color: s
 
 function MoveResize({ onMove, onSize, sizeless }: { onMove: (dx: number, dy: number) => void; onSize: (dx: number, dy: number) => void; sizeless?: boolean }) {
   const cell = (t: string, fn: () => void) => (
-    <button onClick={fn} style={{ background: '#fff', border: `1px solid ${COLOR.lineStrong}`, borderRadius: RADIUS_SM, color: COLOR.ink, cursor: 'pointer', fontSize: 11, padding: '6px 0' }}>{t}</button>
+    <button onClick={fn} style={{ background: '#fff', border: `1px solid ${COLOR.lineStrong}`, borderRadius: RADIUS_SM, color: COLOR.ink, cursor: 'pointer', fontSize: 13, minHeight: 40, padding: 0 }}>{t}</button>
   );
   return (
     <div style={{ display: 'flex', gap: 10 }}>

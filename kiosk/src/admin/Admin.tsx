@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { COLOR, FONT, RADIUS, RADIUS_SM, TYPE } from '../design/tokens';
+import { COLOR, FONT, RADIUS, RADIUS_SM, TOUCH_MIN, TYPE } from '../design/tokens';
 import { LEAVES as BASE_LEAVES } from '../catalog/leaves.generated';
 import { ROOMS as BASE_ROOMS } from '../catalog/rooms.generated';
 import type { Leaf, Room } from '../catalog/types';
@@ -59,8 +59,8 @@ export function Admin() {
               <button key={t} onClick={() => setTab(t)} style={pill(tab === t)}>{t === 'doors' ? `Eshiklar (${leaves.length})` : `Xonalar (${rooms.length})`}</button>
             ))}
           </div>
-          <div style={{ display: 'flex', gap: 14, alignItems: 'center' }}>
-            <a href="#/" style={{ ...TYPE.small, color: COLOR.inkSoft, textDecoration: 'none' }}>Client sayt →</a>
+          <div style={{ display: 'flex', gap: 10, alignItems: 'center' }}>
+            <a href="#/" style={clientLinkBtn}>Client sayt →</a>
             <button onClick={() => setAdding(true)} style={primaryBtn}>
               + {tab === 'doors' ? 'Yangi eshik' : 'Yangi xona'}
             </button>
@@ -176,7 +176,7 @@ function EditBtn({ onClick }: { onClick: () => void }) {
 function DeleteBtn({ onClick, kind }: { onClick: () => void; kind: 'delete' | 'hide' | 'restore' }) {
   const label = kind === 'delete' ? 'O‘chirish' : kind === 'restore' ? 'Aslini qaytarish' : 'Yashirish';
   return (
-    <button onClick={onClick} style={{ flex: 1, padding: '9px', borderRadius: RADIUS_SM, border: `1px solid ${DANGER.border}`, background: 'transparent', color: DANGER.text, cursor: 'pointer', fontSize: 13, fontFamily: 'inherit' }}>
+    <button onClick={onClick} style={{ flex: 1, minHeight: TOUCH_MIN, padding: '9px', borderRadius: RADIUS_SM, border: `1px solid ${DANGER.border}`, background: 'transparent', color: DANGER.text, cursor: 'pointer', fontSize: 13, fontFamily: 'inherit' }}>
       {label}
     </button>
   );
@@ -187,12 +187,16 @@ function DeleteBtn({ onClick, kind }: { onClick: () => void; kind: 'delete' | 'h
 const DANGER = { text: '#A6432C', border: 'rgba(166,67,44,.35)', bg: 'rgba(166,67,44,.07)' };
 
 const pill = (on: boolean): React.CSSProperties => ({
-  padding: '9px 18px', borderRadius: 999, border: 'none', cursor: 'pointer', fontSize: 14, fontWeight: on ? 600 : 400, fontFamily: 'inherit',
+  minHeight: TOUCH_MIN, padding: '9px 18px', borderRadius: 999, border: 'none', cursor: 'pointer', fontSize: 14, fontWeight: on ? 600 : 400, fontFamily: 'inherit',
   background: on ? COLOR.ink : 'transparent', color: on ? COLOR.onInk : COLOR.inkSoft,
 });
-const primaryBtn: React.CSSProperties = { padding: '11px 20px', borderRadius: RADIUS, border: 'none', background: COLOR.ink, color: COLOR.onInk, fontWeight: 600, cursor: 'pointer', fontSize: 14, fontFamily: 'inherit' };
-const ghostBtn: React.CSSProperties = { width: '100%', marginTop: 10, padding: '9px', borderRadius: RADIUS_SM, border: `1px solid ${COLOR.lineStrong}`, background: 'transparent', color: COLOR.ink, cursor: 'pointer', fontSize: 13, fontFamily: 'inherit' };
-const cardInput: React.CSSProperties = { width: '100%', marginTop: 10, padding: '7px 9px', borderRadius: RADIUS_SM, background: COLOR.paper, color: COLOR.ink, border: `1px solid ${COLOR.line}`, fontSize: 13, fontFamily: 'inherit' };
+const primaryBtn: React.CSSProperties = { minHeight: TOUCH_MIN, padding: '11px 20px', borderRadius: RADIUS, border: 'none', background: COLOR.ink, color: COLOR.onInk, fontWeight: 600, cursor: 'pointer', fontSize: 14, fontFamily: 'inherit' };
+/** Same visual language as `primaryBtn` but outlined — the "go to the other
+ *  side" link (client ↔ admin) needs to read as a real, tappable button on a
+ *  touch monitor, not a small text link a finger can miss. */
+const clientLinkBtn: React.CSSProperties = { minHeight: TOUCH_MIN, padding: '0 18px', display: 'flex', alignItems: 'center', borderRadius: RADIUS, border: `1px solid ${COLOR.lineStrong}`, color: COLOR.ink, textDecoration: 'none', fontSize: 14, fontFamily: 'inherit' };
+const ghostBtn: React.CSSProperties = { width: '100%', minHeight: TOUCH_MIN, marginTop: 10, padding: '9px', borderRadius: RADIUS_SM, border: `1px solid ${COLOR.lineStrong}`, background: 'transparent', color: COLOR.ink, cursor: 'pointer', fontSize: 13, fontFamily: 'inherit' };
+const cardInput: React.CSSProperties = { width: '100%', minHeight: TOUCH_MIN, marginTop: 10, padding: '7px 9px', borderRadius: RADIUS_SM, background: COLOR.paper, color: COLOR.ink, border: `1px solid ${COLOR.line}`, fontSize: 13, fontFamily: 'inherit' };
 const badge: React.CSSProperties = { position: 'absolute', top: 6, left: 6, ...TYPE.label, fontSize: 10, color: COLOR.ink, background: 'rgba(255,255,255,.88)', padding: '3px 8px', borderRadius: 999 };
 /** A bench-added item never gets `badge` (that's reserved for built-ins) — it
  *  otherwise carries no marker at all, so "tayyor / tahrirlangan / qo'shilgan"
