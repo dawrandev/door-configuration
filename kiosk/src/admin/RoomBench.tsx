@@ -2,7 +2,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { COLOR, RADIUS, RADIUS_SM, TYPE } from '../design/tokens';
 import { processRoom, type Rect } from './roomProcess';
 import { saveRoom, type AdminRoom, type TrimRole } from './adminStore';
-import { Panel, Label, inp, primaryBtn, ghostBtn, linkBtn, Handle, DimHUD, Seg } from './DoorBench';
+import { Panel, Label, inp, primaryBtn, ghostBtn, linkBtn, Handle, DimHUD } from './DoorBench';
 import { recolorTrim } from '../render/recolor';
 import type { Tint } from '../catalog/colors';
 import type { Room } from '../catalog/types';
@@ -39,16 +39,18 @@ interface TrimBox {
   id: string;
   role: TrimRole;
   label?: string;
-  /** 'rect' drags like the doorway box always has. 'poly' is a free outline
-   *  for trim a rectangle can't honestly cover — a moulded crown especially,
-   *  which is rarely a clean box. */
-  shape: 'rect' | 'poly';
-  /** The piece's bounding box. Always kept in sync (even in 'poly' mode, as
-   *  the bbox of `points`) — recolorTrim's shared-crop and the HUD both need
-   *  a plain rect regardless of shape. */
+  /** The piece's bounding box — kept in sync as the bbox of `points`.
+   *  recolorTrim's shared-crop and the HUD both read this regardless of the
+   *  actual outline. */
   rect: Rect;
-  /** Only meaningful when shape === 'poly': the actual outline, wound
-   *  clockwise from top-left, image fractions. */
+  /**
+   * The piece's real outline, wound clockwise from top-left, image
+   * fractions. Always at least 4 points and always independently draggable
+   * — a moulded crown is rarely a clean box, so trim was never really a
+   * rectangle to begin with; it only looked like one because it started as
+   * 4 points at a rectangle's corners. Dragging one point moves ONLY that
+   * point.
+   */
   points: Point[];
 }
 
@@ -177,21 +179,18 @@ function defaultRectFor(role: TrimRole, open: Rect, trim: TrimBox[]): Rect {
  */
 type StoredTrim = Rect & { points?: Point[] };
 
-/** Build a bench TrimBox from whatever a room stored — a plain rect, or a
- *  rect plus its real outline. */
-/** The reverse of `toTrimBox` — what a piece publishes: its rect always,
- *  plus its real outline when it has one. */
+/** What a piece publishes: its bbox, plus its real outline. */
 function toStoredBox(t: TrimBox): StoredTrim {
-  return t.shape === 'poly' && t.points.length >= 3 ? { ...t.rect, points: t.points } : { ...t.rect };
+  return { ...t.rect, points: t.points };
 }
 
+/** Build a bench TrimBox from whatever a room stored. Older data (saved
+ *  before free points existed) has no `points` — seeded from its rect, same
+ *  as a brand-new piece, so it opens as 4 draggable corners rather than
+ *  erroring. */
 function toTrimBox(id: string, role: TrimRole, label: string | undefined, box: StoredTrim): TrimBox {
-  return {
-    id, role, label,
-    shape: box.points && box.points.length >= 3 ? 'poly' : 'rect',
-    rect: { x: box.x, y: box.y, w: box.w, h: box.h },
-    points: box.points ?? [],
-  };
+  const rect = { x: box.x, y: box.y, w: box.w, h: box.h };
+  return { id, role, label, rect, points: box.points && box.points.length >= 3 ? box.points : seedPoints(rect) };
 }
 
 function inferRoles(boxes: StoredTrim[]): TrimBox[] {
@@ -240,9 +239,9 @@ export function RoomBench({ onDone, edit }: { onDone: () => void; edit?: AdminRo
   const [result, setResult] = useState<string | null>(null);
 
   const wrapRef = useRef<HTMLDivElement>(null);
-  /** Either a rect corner drag (the doorway, or a 'rect'-shape trim) or a
-   *  poly point drag (one vertex of a 'poly'-shape trim), by index. */
-  const drag = useRef<{ kind: 'corner'; target: 'open' | { trimId: string }; corner: Corner } | { kind: 'point'; trimId: string; index: number } | null>(null);
+  /** The doorway drags as a true rectangle (a real opening is one); a trim
+   *  piece drags one point of its outline at a time, by index. */
+  const drag = useRef<{ kind: 'corner'; corner: Corner } | { kind: 'point'; trimId: string; index: number } | null>(null);
 
   useEffect(() => {
     if (!edit) return;
@@ -292,38 +291,34 @@ export function RoomBench({ onDone, edit }: { onDone: () => void; edit?: AdminRo
     const p = toFrac(e.clientX, e.clientY);
     const d = drag.current;
     if (d.kind === 'corner') {
-      const { target, corner } = d;
-      if (target === 'open') {
-        setBox((b) => (b ? resizeCorner(b, corner, p) : b));
-      } else {
-        const { trimId } = target;
-        setTrim((ts) => ts.map((t) => (t.id === trimId ? { ...t, rect: resizeCorner(t.rect, corner, p) } : t)));
-      }
+      setBox((b) => (b ? resizeCorner(b, d.corner, p) : b));
     } else {
       const { trimId, index } = d;
       const cx = Math.min(Math.max(0, p.x), 1), cy = Math.min(Math.max(0, p.y), 1);
       setTrim((ts) => ts.map((t) => {
         if (t.id !== trimId) return t;
+        // ONLY this one point moves — every other point of the outline stays
+        // exactly where it was, which is the entire point of a free polygon
+        // over a rectangle's coupled opposite-corner behaviour.
         const points = t.points.map((pt, i) => (i === index ? { x: cx, y: cy } : pt));
         return { ...t, points, rect: bboxOfPoints(points) };
       }));
     }
   };
-  const nudge = (target: 'open' | { trimId: string }, dx: number, dy: number, kind: 'move' | 'size') => {
+  const nudgeOpen = (dx: number, dy: number, kind: 'move' | 'size') => {
     if (!img) return;
     const fx = dx / img.width, fy = dy / img.height;
-    const apply = (r: Rect): Rect => (kind === 'move' ? { ...r, x: r.x + fx, y: r.y + fy } : { ...r, w: r.w + fx, h: r.h + fy });
-    if (target === 'open') { setBox((b) => (b ? apply(b) : b)); return; }
-    // A poly piece nudges by translating every point together (resizing a
-    // free outline by the corner-drag delta alone has no sensible meaning).
+    setBox((b) => (b ? (kind === 'move' ? { ...b, x: b.x + fx, y: b.y + fy } : { ...b, w: b.w + fx, h: b.h + fy }) : b));
+  };
+  /** A trim piece only ever nudges by MOVING — translating every point
+   *  together. There is no single "size" for a free outline. */
+  const nudgeTrim = (trimId: string, dx: number, dy: number) => {
+    if (!img) return;
+    const fx = dx / img.width, fy = dy / img.height;
     setTrim((ts) => ts.map((t) => {
-      if (t.id !== target.trimId) return t;
-      if (t.shape === 'poly' && kind === 'move') {
-        const points = t.points.map((p) => ({ x: p.x + fx, y: p.y + fy }));
-        return { ...t, points, rect: bboxOfPoints(points) };
-      }
-      if (t.shape === 'poly') return t;
-      return { ...t, rect: apply(t.rect) };
+      if (t.id !== trimId) return t;
+      const points = t.points.map((p) => ({ x: p.x + fx, y: p.y + fy }));
+      return { ...t, points, rect: bboxOfPoints(points) };
     }));
   };
 
@@ -332,19 +327,12 @@ export function RoomBench({ onDone, edit }: { onDone: () => void; edit?: AdminRo
     const id = role === 'extra' ? `extra-${Date.now().toString(36)}` : role;
     const rect = defaultRectFor(role, box, trim);
     const label = role === 'extra' ? `Boshqa ${trim.filter((t) => t.role === 'extra').length + 1}` : undefined;
-    setTrim((ts) => [...ts, { id, role, label, shape: 'rect', rect, points: [] }]);
+    setTrim((ts) => [...ts, { id, role, label, rect, points: seedPoints(rect) }]);
     setActiveTrimId(id);
   };
   const removeTrim = (id: string) => {
     setTrim((ts) => ts.filter((t) => t.id !== id));
     setActiveTrimId((a) => (a === id ? null : a));
-  };
-  /** Rect ↔ poly. Switching TO poly seeds the outline from the current
-   *  rect (so it starts as a usable quad, not a blank shape); switching back
-   *  just stops reading `points` — the rect underneath was kept in sync the
-   *  whole time, so nothing is lost by returning to it. */
-  const toggleShape = (id: string) => {
-    setTrim((ts) => ts.map((t) => (t.id === id ? { ...t, shape: t.shape === 'rect' ? 'poly' : 'rect', points: t.shape === 'rect' ? seedPoints(t.rect) : t.points } : t)));
   };
   const removePoint = (trimId: string, index: number) => {
     setTrim((ts) => ts.map((t) => {
@@ -355,11 +343,12 @@ export function RoomBench({ onDone, edit }: { onDone: () => void; edit?: AdminRo
   };
   /** Click near the outline (not on an existing handle) inserts a new point
    *  on the nearest edge and starts dragging it — the same "click the line to
-   *  add an anchor" gesture a vector-path tool uses. */
+   *  add an anchor" gesture a vector-path tool uses. One click is enough;
+   *  it does not wait for a second. */
   const onAddPoint = (e: React.PointerEvent) => {
     if (drag.current) return; // a handle's own onPointerDown already claimed this gesture
     const active = trim.find((t) => t.id === activeTrimId);
-    if (!active || active.shape !== 'poly') return;
+    if (!active) return;
     const p = toFrac(e.clientX, e.clientY);
     const cx = Math.min(Math.max(0, p.x), 1), cy = Math.min(Math.max(0, p.y), 1);
     const idx = insertIndexForPoint(active.points, { x: cx, y: cy });
@@ -424,7 +413,7 @@ export function RoomBench({ onDone, edit }: { onDone: () => void; edit?: AdminRo
   const dispH = img ? img.height * zoom : 0;
   const activeTrim = trim.find((t) => t.id === activeTrimId) ?? null;
   const dc = drag.current;
-  const draggingRect = dc?.kind === 'corner' && dc.target === 'open' ? box : activeTrim?.rect ?? null;
+  const draggingRect = dc?.kind === 'corner' ? box : activeTrim?.rect ?? null;
 
   return (
     <div style={{ display: 'flex', height: '100%', width: '100%' }}>
@@ -458,19 +447,11 @@ export function RoomBench({ onDone, edit }: { onDone: () => void; edit?: AdminRo
               <>
                 <div style={{ position: 'absolute', left: box.x * dispW, top: box.y * dispH, width: box.w * dispW, height: box.h * dispH, border: `1.5px solid ${COLOR.brass}`, background: 'rgba(35,32,27,.35)' }} />
                 {corners(box).map(({ corner, x, y }) => (
-                  <Handle key={corner} x={x * dispW} y={y * dispH} onPointerDown={(e) => { e.stopPropagation(); (e.target as Element).setPointerCapture(e.pointerId); drag.current = { kind: 'corner', target: 'open', corner }; }} />
+                  <Handle key={corner} x={x * dispW} y={y * dispH} onPointerDown={(e) => { e.stopPropagation(); (e.target as Element).setPointerCapture(e.pointerId); drag.current = { kind: 'corner', corner }; }} />
                 ))}
               </>
             )}
-            {activeTrim && activeTrim.shape === 'rect' && (
-              <>
-                <div style={{ position: 'absolute', left: activeTrim.rect.x * dispW, top: activeTrim.rect.y * dispH, width: activeTrim.rect.w * dispW, height: activeTrim.rect.h * dispH, border: `2px solid ${ROLE_META[activeTrim.role].color}`, background: 'rgba(35,32,27,.1)' }} />
-                {corners(activeTrim.rect).map(({ corner, x, y }) => (
-                  <Handle key={corner} x={x * dispW} y={y * dispH} color={ROLE_META[activeTrim.role].color} onPointerDown={(e) => { e.stopPropagation(); (e.target as Element).setPointerCapture(e.pointerId); drag.current = { kind: 'corner', target: { trimId: activeTrim.id }, corner }; }} />
-                ))}
-              </>
-            )}
-            {activeTrim && activeTrim.shape === 'poly' && (
+            {activeTrim && (
               <>
                 <svg style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', pointerEvents: 'none' }}>
                   <polygon
@@ -513,7 +494,7 @@ export function RoomBench({ onDone, edit }: { onDone: () => void; edit?: AdminRo
             <Label>Kattalashtirish — {(zoom * 100).toFixed(0)}%</Label>
             <input type="range" min={0.08} max={2} step={0.02} value={zoom} onChange={(e) => setZoom(+e.target.value)} style={{ width: '100%' }} />
             <Label>Teshikni surish</Label>
-            <MoveResize onMove={(dx, dy) => nudge('open', dx, dy, 'move')} onSize={(dx, dy) => nudge('open', dx, dy, 'size')} />
+            <MoveResize onMove={(dx, dy) => nudgeOpen(dx, dy, 'move')} onSize={(dx, dy) => nudgeOpen(dx, dy, 'size')} />
 
             <div style={{ display: 'flex', alignItems: 'baseline', justifyContent: 'space-between', marginTop: 22 }}>
               <Label>Nalichnik qismlari</Label>
@@ -567,26 +548,14 @@ export function RoomBench({ onDone, edit }: { onDone: () => void; edit?: AdminRo
                     </div>
                     {active && (
                       <div style={{ marginTop: 8, paddingLeft: 4 }}>
-                        <Seg
-                          opts={[{ id: 'rect', label: 'To‘rtburchak' }, { id: 'poly', label: 'Erkin shakl' }]}
-                          value={t.shape}
-                          onPick={(v) => { if (v !== t.shape) toggleShape(t.id); }}
-                        />
-                        {t.shape === 'rect' ? (
-                          <div style={{ marginTop: 8 }}>
-                            <MoveResize onMove={(dx, dy) => nudge({ trimId: t.id }, dx, dy, 'move')} onSize={(dx, dy) => nudge({ trimId: t.id }, dx, dy, 'size')} />
-                          </div>
-                        ) : (
-                          <>
-                            <div style={{ fontSize: 11, color: COLOR.inkSoft, lineHeight: 1.5, marginTop: 8 }}>
-                              Rasmda chiziq bo‘ylab bosib yangi nuqta qo‘shing, nuqtani torting — shaklni o‘zgartirish uchun.
-                              Nuqtani <b>ikki marta bosish</b> uni o‘chiradi (kamida 3 ta nuqta qolishi kerak).
-                            </div>
-                            <div style={{ marginTop: 8 }}>
-                              <MoveResize onMove={(dx, dy) => nudge({ trimId: t.id }, dx, dy, 'move')} onSize={() => {}} sizeless />
-                            </div>
-                          </>
-                        )}
+                        <div style={{ fontSize: 11, color: COLOR.inkSoft, lineHeight: 1.5 }}>
+                          Har bir nuqta <b>mustaqil</b> — bittasini tortsangiz, faqat o‘sha
+                          siljiydi. Chiziq bo‘ylab <b>bir marta bosib</b> yangi nuqta qo‘shing.
+                          Nuqtani <b>ikki marta bosish</b> uni o‘chiradi (kamida 3 ta nuqta qolishi kerak).
+                        </div>
+                        <div style={{ marginTop: 8 }}>
+                          <MoveResize onMove={(dx, dy) => nudgeTrim(t.id, dx, dy)} onSize={() => {}} sizeless />
+                        </div>
                       </div>
                     )}
                   </div>
