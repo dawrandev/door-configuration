@@ -21,6 +21,39 @@ export function AppShell({ children }: { children: ReactNode }) {
       }}
     >
       {children}
+      <AdminEntry />
     </div>
+  );
+}
+
+/**
+ * A near-invisible way in to the bench, so staff never have to type
+ * "#/admin" by hand. Deliberately faint — a customer browsing the showroom
+ * has no reason to notice a dim mark in the corner, but staff who know it's
+ * there can always find it.
+ */
+function AdminEntry() {
+  return (
+    <a
+      href="#/admin"
+      aria-label="Admin panel"
+      style={{
+        position: 'fixed',
+        right: 0,
+        bottom: 0,
+        width: 40,
+        height: 40,
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'center',
+        color: COLOR.ink,
+        opacity: 0.14,
+        textDecoration: 'none',
+        fontSize: 16,
+        WebkitTapHighlightColor: 'transparent',
+      }}
+    >
+      ⚙
+    </a>
   );
 }
