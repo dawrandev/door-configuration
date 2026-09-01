@@ -230,7 +230,7 @@ export function recolorTrim(room: Room, tint: Tint): Promise<string | null> {
   // The box list is part of the key, not just the room id: a published room's
   // boxes never change at runtime, but the admin bench's live preview edits
   // them on every drag, and a stale cache hit there would show the wrong shape.
-  const boxKey = boxes.map((b) => `${b.x},${b.y},${b.w},${b.h}`).join(';');
+  const boxKey = boxes.map((b) => `${b.x},${b.y},${b.w},${b.h},${b.points?.map((p) => `${p.x},${p.y}`).join(',') ?? ''}`).join(';');
   return cached(`trim|${room.id}|${tint.join(',')}|${room.image.length}|${boxKey}`, async () => {
     const img = await loadImage(room.thumb ?? room.image);
     const { canvas, w, h } = drawAt(img, CASING_W);
@@ -263,7 +263,16 @@ export function recolorTrim(room: Room, tint: Tint): Promise<string | null> {
     // twice and leave it unpainted — the opposite of what two boxes covering
     // the same trim should do.
     const path = new Path2D();
-    for (const b of boxes) path.rect(Math.round(b.x * w), Math.round(b.y * h), Math.round(b.w * w), Math.round(b.h * h));
+    for (const b of boxes) {
+      if (b.points && b.points.length >= 3) {
+        const [p0, ...rest] = b.points;
+        path.moveTo(Math.round(p0.x * w), Math.round(p0.y * h));
+        for (const p of rest) path.lineTo(Math.round(p.x * w), Math.round(p.y * h));
+        path.closePath();
+      } else {
+        path.rect(Math.round(b.x * w), Math.round(b.y * h), Math.round(b.w * w), Math.round(b.h * h));
+      }
+    }
     octx.save();
     octx.clip(path);
     octx.drawImage(tinted, cx, cy);

@@ -217,8 +217,15 @@ export interface Room {
    * Measured per room, by eye against the photograph; absent rooms simply
    * keep a white casing. A flush/modern room may need only one box (the ring);
    * a classical one typically needs the ring, a crown, and two foot blocks.
+   *
+   * `x,y,w,h` is always present — the piece's bounding box, used for the
+   * shared-derivation crop and as a fallback shape. `points`, when present,
+   * is the piece's ACTUAL outline (a closed polygon, image fractions,
+   * wound clockwise from top-left) and wins over the plain rectangle — a
+   * moulded crown is rarely a clean box, and a rectangle over it paints the
+   * wall on either side along with the moulding.
    */
-  trimBoxes?: { x: number; y: number; w: number; h: number }[];
+  trimBoxes?: { x: number; y: number; w: number; h: number; points?: { x: number; y: number }[] }[];
   /**
    * The bench needs this to REOPEN a room and re-mark its doorway/trim — the
    * same reason Leaf keeps `source`. `thumb` already IS this photo (untouched,

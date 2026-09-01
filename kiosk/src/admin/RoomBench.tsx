@@ -2,7 +2,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { COLOR, RADIUS, RADIUS_SM, TYPE } from '../design/tokens';
 import { processRoom, type Rect } from './roomProcess';
 import { saveRoom, type AdminRoom, type TrimRole } from './adminStore';
-import { Panel, Label, inp, primaryBtn, ghostBtn, linkBtn, Handle, DimHUD } from './DoorBench';
+import { Panel, Label, inp, primaryBtn, ghostBtn, linkBtn, Handle, DimHUD, Seg } from './DoorBench';
 import { recolorTrim } from '../render/recolor';
 import type { Tint } from '../catalog/colors';
 import type { Room } from '../catalog/types';
@@ -33,11 +33,67 @@ const ROLE_META: Record<TrimRole, { label: string; color: string }> = {
   extra: { label: 'Boshqa', color: '#B85A2E' },
 };
 
+interface Point { x: number; y: number }
+
 interface TrimBox {
   id: string;
   role: TrimRole;
   label?: string;
+  /** 'rect' drags like the doorway box always has. 'poly' is a free outline
+   *  for trim a rectangle can't honestly cover — a moulded crown especially,
+   *  which is rarely a clean box. */
+  shape: 'rect' | 'poly';
+  /** The piece's bounding box. Always kept in sync (even in 'poly' mode, as
+   *  the bbox of `points`) — recolorTrim's shared-crop and the HUD both need
+   *  a plain rect regardless of shape. */
   rect: Rect;
+  /** Only meaningful when shape === 'poly': the actual outline, wound
+   *  clockwise from top-left, image fractions. */
+  points: Point[];
+}
+
+/** The smallest rect containing every point — `points`' bounding box. */
+function bboxOfPoints(points: Point[]): Rect {
+  const xs = points.map((p) => p.x);
+  const ys = points.map((p) => p.y);
+  const x0 = Math.min(...xs), y0 = Math.min(...ys);
+  return { x: x0, y: y0, w: Math.max(...xs) - x0, h: Math.max(...ys) - y0 };
+}
+
+/** A rect's four corners as a closed polygon, tl→tr→br→bl — the winding a
+ *  simple (non-self-crossing) outline needs. Seeds a fresh 'poly' shape from
+ *  whatever rect the piece already had, so switching never starts blank. */
+function seedPoints(rect: Rect): Point[] {
+  return [
+    { x: rect.x, y: rect.y },
+    { x: rect.x + rect.w, y: rect.y },
+    { x: rect.x + rect.w, y: rect.y + rect.h },
+    { x: rect.x, y: rect.y + rect.h },
+  ];
+}
+
+/** Perpendicular distance from p to the segment a–b (clamped to the segment). */
+function distToSegment(p: Point, a: Point, b: Point): number {
+  const dx = b.x - a.x, dy = b.y - a.y;
+  const len2 = dx * dx + dy * dy;
+  const t = len2 === 0 ? 0 : Math.max(0, Math.min(1, ((p.x - a.x) * dx + (p.y - a.y) * dy) / len2));
+  return Math.hypot(p.x - (a.x + t * dx), p.y - (a.y + t * dy));
+}
+
+/**
+ * Where a new point belongs: on the edge it lands closest to, so a click
+ * anywhere near the outline inserts right there rather than tacking a point
+ * onto the end and scrambling the shape. With fewer than two points yet,
+ * there is no edge to measure — just append.
+ */
+function insertIndexForPoint(points: Point[], p: Point): number {
+  if (points.length < 2) return points.length;
+  let bestI = points.length, bestD = Infinity;
+  for (let i = 0; i < points.length; i++) {
+    const d = distToSegment(p, points[i], points[(i + 1) % points.length]);
+    if (d < bestD) { bestD = d; bestI = i + 1; }
+  }
+  return bestI;
 }
 
 type Corner = 'tl' | 'tr' | 'bl' | 'br';
@@ -119,18 +175,37 @@ function defaultRectFor(role: TrimRole, open: Rect, trim: TrimBox[]): Rect {
  * Purely a starting label for editing; once republished, trimRoles is real
  * and this never runs again for that room.
  */
-function inferRoles(boxes: Rect[]): TrimBox[] {
+type StoredTrim = Rect & { points?: Point[] };
+
+/** Build a bench TrimBox from whatever a room stored — a plain rect, or a
+ *  rect plus its real outline. */
+/** The reverse of `toTrimBox` — what a piece publishes: its rect always,
+ *  plus its real outline when it has one. */
+function toStoredBox(t: TrimBox): StoredTrim {
+  return t.shape === 'poly' && t.points.length >= 3 ? { ...t.rect, points: t.points } : { ...t.rect };
+}
+
+function toTrimBox(id: string, role: TrimRole, label: string | undefined, box: StoredTrim): TrimBox {
+  return {
+    id, role, label,
+    shape: box.points && box.points.length >= 3 ? 'poly' : 'rect',
+    rect: { x: box.x, y: box.y, w: box.w, h: box.h },
+    points: box.points ?? [],
+  };
+}
+
+function inferRoles(boxes: StoredTrim[]): TrimBox[] {
   if (boxes.length === 0) return [];
   const byArea = [...boxes].sort((a, b) => b.w * b.h - a.w * a.h);
   const shaft = byArea[0];
   const rest = boxes.filter((b) => b !== shaft);
   const crown = rest.find((b) => b.y + b.h <= shaft.y + 0.01);
   const feet = rest.filter((b) => b !== crown).sort((a, b) => a.x - b.x);
-  const out: TrimBox[] = [{ id: 'shaft', role: 'shaft', rect: shaft }];
-  if (crown) out.push({ id: 'crown', role: 'crown', rect: crown });
-  if (feet[0]) out.push({ id: 'footL', role: 'footL', rect: feet[0] });
-  if (feet[1]) out.push({ id: 'footR', role: 'footR', rect: feet[1] });
-  feet.slice(2).forEach((rect, i) => out.push({ id: `extra-${i}`, role: 'extra', rect }));
+  const out: TrimBox[] = [toTrimBox('shaft', 'shaft', undefined, shaft)];
+  if (crown) out.push(toTrimBox('crown', 'crown', undefined, crown));
+  if (feet[0]) out.push(toTrimBox('footL', 'footL', undefined, feet[0]));
+  if (feet[1]) out.push(toTrimBox('footR', 'footR', undefined, feet[1]));
+  feet.slice(2).forEach((box, i) => out.push(toTrimBox(`extra-${i}`, 'extra', undefined, box)));
   return out;
 }
 
@@ -165,14 +240,16 @@ export function RoomBench({ onDone, edit }: { onDone: () => void; edit?: AdminRo
   const [result, setResult] = useState<string | null>(null);
 
   const wrapRef = useRef<HTMLDivElement>(null);
-  const drag = useRef<{ target: 'open' | { trimId: string }; corner: Corner } | null>(null);
+  /** Either a rect corner drag (the doorway, or a 'rect'-shape trim) or a
+   *  poly point drag (one vertex of a 'poly'-shape trim), by index. */
+  const drag = useRef<{ kind: 'corner'; target: 'open' | { trimId: string }; corner: Corner } | { kind: 'point'; trimId: string; index: number } | null>(null);
 
   useEffect(() => {
     if (!edit) return;
     setName(edit.name.uz);
     if (edit.trimBoxes) {
       setTrim(edit.trimRoles && edit.trimRoles.length === edit.trimBoxes.length
-        ? edit.trimRoles.map((r, i) => ({ id: `${r.role}-${i}`, role: r.role, label: r.label, rect: edit.trimBoxes![i] }))
+        ? edit.trimRoles.map((r, i) => toTrimBox(`${r.role}-${i}`, r.role, r.label, edit.trimBoxes![i]))
         : inferRoles(edit.trimBoxes));
     }
     if (!edit.source) return;
@@ -213,20 +290,41 @@ export function RoomBench({ onDone, edit }: { onDone: () => void; edit?: AdminRo
   const onMove = (e: React.PointerEvent) => {
     if (!drag.current) return;
     const p = toFrac(e.clientX, e.clientY);
-    const { target, corner } = drag.current;
-    if (target === 'open') {
-      setBox((b) => (b ? resizeCorner(b, corner, p) : b));
+    const d = drag.current;
+    if (d.kind === 'corner') {
+      const { target, corner } = d;
+      if (target === 'open') {
+        setBox((b) => (b ? resizeCorner(b, corner, p) : b));
+      } else {
+        const { trimId } = target;
+        setTrim((ts) => ts.map((t) => (t.id === trimId ? { ...t, rect: resizeCorner(t.rect, corner, p) } : t)));
+      }
     } else {
-      const { trimId } = target;
-      setTrim((ts) => ts.map((t) => (t.id === trimId ? { ...t, rect: resizeCorner(t.rect, corner, p) } : t)));
+      const { trimId, index } = d;
+      const cx = Math.min(Math.max(0, p.x), 1), cy = Math.min(Math.max(0, p.y), 1);
+      setTrim((ts) => ts.map((t) => {
+        if (t.id !== trimId) return t;
+        const points = t.points.map((pt, i) => (i === index ? { x: cx, y: cy } : pt));
+        return { ...t, points, rect: bboxOfPoints(points) };
+      }));
     }
   };
   const nudge = (target: 'open' | { trimId: string }, dx: number, dy: number, kind: 'move' | 'size') => {
     if (!img) return;
     const fx = dx / img.width, fy = dy / img.height;
     const apply = (r: Rect): Rect => (kind === 'move' ? { ...r, x: r.x + fx, y: r.y + fy } : { ...r, w: r.w + fx, h: r.h + fy });
-    if (target === 'open') setBox((b) => (b ? apply(b) : b));
-    else setTrim((ts) => ts.map((t) => (t.id === target.trimId ? { ...t, rect: apply(t.rect) } : t)));
+    if (target === 'open') { setBox((b) => (b ? apply(b) : b)); return; }
+    // A poly piece nudges by translating every point together (resizing a
+    // free outline by the corner-drag delta alone has no sensible meaning).
+    setTrim((ts) => ts.map((t) => {
+      if (t.id !== target.trimId) return t;
+      if (t.shape === 'poly' && kind === 'move') {
+        const points = t.points.map((p) => ({ x: p.x + fx, y: p.y + fy }));
+        return { ...t, points, rect: bboxOfPoints(points) };
+      }
+      if (t.shape === 'poly') return t;
+      return { ...t, rect: apply(t.rect) };
+    }));
   };
 
   const addTrim = (role: TrimRole) => {
@@ -234,12 +332,44 @@ export function RoomBench({ onDone, edit }: { onDone: () => void; edit?: AdminRo
     const id = role === 'extra' ? `extra-${Date.now().toString(36)}` : role;
     const rect = defaultRectFor(role, box, trim);
     const label = role === 'extra' ? `Boshqa ${trim.filter((t) => t.role === 'extra').length + 1}` : undefined;
-    setTrim((ts) => [...ts, { id, role, label, rect }]);
+    setTrim((ts) => [...ts, { id, role, label, shape: 'rect', rect, points: [] }]);
     setActiveTrimId(id);
   };
   const removeTrim = (id: string) => {
     setTrim((ts) => ts.filter((t) => t.id !== id));
     setActiveTrimId((a) => (a === id ? null : a));
+  };
+  /** Rect ↔ poly. Switching TO poly seeds the outline from the current
+   *  rect (so it starts as a usable quad, not a blank shape); switching back
+   *  just stops reading `points` — the rect underneath was kept in sync the
+   *  whole time, so nothing is lost by returning to it. */
+  const toggleShape = (id: string) => {
+    setTrim((ts) => ts.map((t) => (t.id === id ? { ...t, shape: t.shape === 'rect' ? 'poly' : 'rect', points: t.shape === 'rect' ? seedPoints(t.rect) : t.points } : t)));
+  };
+  const removePoint = (trimId: string, index: number) => {
+    setTrim((ts) => ts.map((t) => {
+      if (t.id !== trimId || t.points.length <= 3) return t;
+      const points = t.points.filter((_, i) => i !== index);
+      return { ...t, points, rect: bboxOfPoints(points) };
+    }));
+  };
+  /** Click near the outline (not on an existing handle) inserts a new point
+   *  on the nearest edge and starts dragging it — the same "click the line to
+   *  add an anchor" gesture a vector-path tool uses. */
+  const onAddPoint = (e: React.PointerEvent) => {
+    if (drag.current) return; // a handle's own onPointerDown already claimed this gesture
+    const active = trim.find((t) => t.id === activeTrimId);
+    if (!active || active.shape !== 'poly') return;
+    const p = toFrac(e.clientX, e.clientY);
+    const cx = Math.min(Math.max(0, p.x), 1), cy = Math.min(Math.max(0, p.y), 1);
+    const idx = insertIndexForPoint(active.points, { x: cx, y: cy });
+    setTrim((ts) => ts.map((t) => {
+      if (t.id !== active.id) return t;
+      const points = [...t.points.slice(0, idx), { x: cx, y: cy }, ...t.points.slice(idx)];
+      return { ...t, points, rect: bboxOfPoints(points) };
+    }));
+    (e.target as Element).setPointerCapture(e.pointerId);
+    drag.current = { kind: 'point', trimId: active.id, index: idx };
   };
 
   // Live trim preview — the exact function the showroom uses, on a draft room
@@ -254,7 +384,7 @@ export function RoomBench({ onDone, edit }: { onDone: () => void; edit?: AdminRo
       image: src, thumb: src,
       aspect: img.width / img.height,
       open: box,
-      trimBoxes: trim.map((t) => t.rect),
+      trimBoxes: trim.map(toStoredBox),
       light: [1, 1, 1],
     };
     const t = window.setTimeout(() => {
@@ -280,7 +410,7 @@ export function RoomBench({ onDone, edit }: { onDone: () => void; edit?: AdminRo
       thumb,
       aspect: p.aspect,
       open: box,
-      trimBoxes: trim.length ? trim.map((t) => t.rect) : undefined,
+      trimBoxes: trim.length ? trim.map(toStoredBox) : undefined,
       trimRoles: trim.length ? trim.map((t) => ({ role: t.role, label: t.label })) : undefined,
       light: p.light,
       createdAt: edit?.createdAt ?? Date.now(),
@@ -293,7 +423,8 @@ export function RoomBench({ onDone, edit }: { onDone: () => void; edit?: AdminRo
   const dispW = img ? img.width * zoom : 0;
   const dispH = img ? img.height * zoom : 0;
   const activeTrim = trim.find((t) => t.id === activeTrimId) ?? null;
-  const draggingRect = drag.current?.target === 'open' ? box : activeTrim?.rect ?? null;
+  const dc = drag.current;
+  const draggingRect = dc?.kind === 'corner' && dc.target === 'open' ? box : activeTrim?.rect ?? null;
 
   return (
     <div style={{ display: 'flex', height: '100%', width: '100%' }}>
@@ -311,6 +442,7 @@ export function RoomBench({ onDone, edit }: { onDone: () => void; edit?: AdminRo
             style={{ position: 'relative', width: dispW, height: dispH, flexShrink: 0, touchAction: 'none' }}
             onPointerMove={onMove}
             onPointerUp={() => (drag.current = null)}
+            onPointerDown={onAddPoint}
           >
             <img src={img.src} alt="" draggable={false} style={{ width: '100%', height: '100%', display: 'block', userSelect: 'none' }} />
             {showTint && trimPreview && (
@@ -326,15 +458,37 @@ export function RoomBench({ onDone, edit }: { onDone: () => void; edit?: AdminRo
               <>
                 <div style={{ position: 'absolute', left: box.x * dispW, top: box.y * dispH, width: box.w * dispW, height: box.h * dispH, border: `1.5px solid ${COLOR.brass}`, background: 'rgba(35,32,27,.35)' }} />
                 {corners(box).map(({ corner, x, y }) => (
-                  <Handle key={corner} x={x * dispW} y={y * dispH} onPointerDown={(e) => { (e.target as Element).setPointerCapture(e.pointerId); drag.current = { target: 'open', corner }; }} />
+                  <Handle key={corner} x={x * dispW} y={y * dispH} onPointerDown={(e) => { e.stopPropagation(); (e.target as Element).setPointerCapture(e.pointerId); drag.current = { kind: 'corner', target: 'open', corner }; }} />
                 ))}
               </>
             )}
-            {activeTrim && (
+            {activeTrim && activeTrim.shape === 'rect' && (
               <>
                 <div style={{ position: 'absolute', left: activeTrim.rect.x * dispW, top: activeTrim.rect.y * dispH, width: activeTrim.rect.w * dispW, height: activeTrim.rect.h * dispH, border: `2px solid ${ROLE_META[activeTrim.role].color}`, background: 'rgba(35,32,27,.1)' }} />
                 {corners(activeTrim.rect).map(({ corner, x, y }) => (
-                  <Handle key={corner} x={x * dispW} y={y * dispH} color={ROLE_META[activeTrim.role].color} onPointerDown={(e) => { (e.target as Element).setPointerCapture(e.pointerId); drag.current = { target: { trimId: activeTrim.id }, corner }; }} />
+                  <Handle key={corner} x={x * dispW} y={y * dispH} color={ROLE_META[activeTrim.role].color} onPointerDown={(e) => { e.stopPropagation(); (e.target as Element).setPointerCapture(e.pointerId); drag.current = { kind: 'corner', target: { trimId: activeTrim.id }, corner }; }} />
+                ))}
+              </>
+            )}
+            {activeTrim && activeTrim.shape === 'poly' && (
+              <>
+                <svg style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', pointerEvents: 'none' }}>
+                  <polygon
+                    points={activeTrim.points.map((p) => `${p.x * dispW},${p.y * dispH}`).join(' ')}
+                    fill="rgba(35,32,27,.15)"
+                    stroke={ROLE_META[activeTrim.role].color}
+                    strokeWidth={2}
+                  />
+                </svg>
+                {activeTrim.points.map((p, i) => (
+                  <Handle
+                    key={i}
+                    x={p.x * dispW}
+                    y={p.y * dispH}
+                    color={ROLE_META[activeTrim.role].color}
+                    onPointerDown={(e) => { e.stopPropagation(); (e.target as Element).setPointerCapture(e.pointerId); drag.current = { kind: 'point', trimId: activeTrim.id, index: i }; }}
+                    onDoubleClick={() => removePoint(activeTrim.id, i)}
+                  />
                 ))}
               </>
             )}
@@ -413,7 +567,26 @@ export function RoomBench({ onDone, edit }: { onDone: () => void; edit?: AdminRo
                     </div>
                     {active && (
                       <div style={{ marginTop: 8, paddingLeft: 4 }}>
-                        <MoveResize onMove={(dx, dy) => nudge({ trimId: t.id }, dx, dy, 'move')} onSize={(dx, dy) => nudge({ trimId: t.id }, dx, dy, 'size')} />
+                        <Seg
+                          opts={[{ id: 'rect', label: 'To‘rtburchak' }, { id: 'poly', label: 'Erkin shakl' }]}
+                          value={t.shape}
+                          onPick={(v) => { if (v !== t.shape) toggleShape(t.id); }}
+                        />
+                        {t.shape === 'rect' ? (
+                          <div style={{ marginTop: 8 }}>
+                            <MoveResize onMove={(dx, dy) => nudge({ trimId: t.id }, dx, dy, 'move')} onSize={(dx, dy) => nudge({ trimId: t.id }, dx, dy, 'size')} />
+                          </div>
+                        ) : (
+                          <>
+                            <div style={{ fontSize: 11, color: COLOR.inkSoft, lineHeight: 1.5, marginTop: 8 }}>
+                              Rasmda chiziq bo‘ylab bosib yangi nuqta qo‘shing, nuqtani torting — shaklni o‘zgartirish uchun.
+                              Nuqtani <b>ikki marta bosish</b> uni o‘chiradi (kamida 3 ta nuqta qolishi kerak).
+                            </div>
+                            <div style={{ marginTop: 8 }}>
+                              <MoveResize onMove={(dx, dy) => nudge({ trimId: t.id }, dx, dy, 'move')} onSize={() => {}} sizeless />
+                            </div>
+                          </>
+                        )}
                       </div>
                     )}
                   </div>
@@ -454,7 +627,7 @@ function RoleChip({ label, color, disabled, onClick }: { label: string; color: s
   );
 }
 
-function MoveResize({ onMove, onSize }: { onMove: (dx: number, dy: number) => void; onSize: (dx: number, dy: number) => void }) {
+function MoveResize({ onMove, onSize, sizeless }: { onMove: (dx: number, dy: number) => void; onSize: (dx: number, dy: number) => void; sizeless?: boolean }) {
   const cell = (t: string, fn: () => void) => (
     <button onClick={fn} style={{ background: '#fff', border: `1px solid ${COLOR.lineStrong}`, borderRadius: RADIUS_SM, color: COLOR.ink, cursor: 'pointer', fontSize: 11, padding: '6px 0' }}>{t}</button>
   );
@@ -468,13 +641,15 @@ function MoveResize({ onMove, onSize }: { onMove: (dx: number, dy: number) => vo
           <span />{cell('▼', () => onMove(0, 8))}<span />
         </div>
       </div>
-      <div style={{ flex: 1 }}>
-        <div style={{ fontSize: 10, color: COLOR.inkSoft, marginBottom: 4 }}>O‘lchami</div>
-        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 3 }}>
-          {cell('En −', () => onSize(-8, 0))}{cell('En +', () => onSize(8, 0))}
-          {cell('Bo‘y −', () => onSize(0, -8))}{cell('Bo‘y +', () => onSize(0, 8))}
+      {!sizeless && (
+        <div style={{ flex: 1 }}>
+          <div style={{ fontSize: 10, color: COLOR.inkSoft, marginBottom: 4 }}>O‘lchami</div>
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 3 }}>
+            {cell('En −', () => onSize(-8, 0))}{cell('En +', () => onSize(8, 0))}
+            {cell('Bo‘y −', () => onSize(0, -8))}{cell('Bo‘y +', () => onSize(0, 8))}
+          </div>
         </div>
-      </div>
+      )}
     </div>
   );
 }

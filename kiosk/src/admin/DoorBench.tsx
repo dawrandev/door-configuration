@@ -337,10 +337,11 @@ export function DoorBench({ onDone, edit }: { onDone: () => void; edit?: AdminLe
  * though the visible dot stays small — a hand marking four corners on a photo
  * needs to land on it, not near it.
  */
-export function Handle({ x, y, color = COLOR.brass, onPointerDown }: { x: number; y: number; color?: string; onPointerDown: (e: React.PointerEvent) => void }) {
+export function Handle({ x, y, color = COLOR.brass, onPointerDown, onDoubleClick }: { x: number; y: number; color?: string; onPointerDown: (e: React.PointerEvent) => void; onDoubleClick?: () => void }) {
   return (
     <div
       onPointerDown={onPointerDown}
+      onDoubleClick={onDoubleClick}
       style={{ position: 'absolute', left: x - TOUCH_MIN / 2, top: y - TOUCH_MIN / 2, width: TOUCH_MIN, height: TOUCH_MIN, display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'grab', touchAction: 'none' }}
     >
       <div style={{ width: 20, height: 20, borderRadius: 999, background: color, border: '2px solid #fff', boxShadow: '0 1px 6px rgba(35,32,27,.35)', pointerEvents: 'none' }} />
