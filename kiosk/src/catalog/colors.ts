@@ -27,11 +27,11 @@ export const COLORS: DoorColor[] = [
   { id: 'oq', name: { uz: 'Oq', kk: 'Aq', ru: 'Белый' }, hex: '#F3F1EB' },
   { id: 'krem', name: { uz: 'Krem', kk: 'Krem', ru: 'Кремовый' }, hex: '#E9DFC7' },
   { id: 'kulrang-moviy', name: { uz: 'Kulrang-moviy', kk: 'Kúl-reń moviy', ru: 'Серо-голубой' }, hex: '#C6CDD4' },
-  { id: 'zaytun', name: { uz: 'Zaytun', kk: 'Zaytun', ru: 'Оливковый' }, hex: '#8E8F6F' },
+  { id: 'tosh', name: { uz: 'Tosh', kk: 'Tas', ru: 'Бежево-серый' }, hex: '#B7AC98' },
   { id: 'karamel', name: { uz: 'Karamel', kk: 'Karamel', ru: 'Карамельный' }, hex: '#AC8A5E' },
   { id: 'kok', name: { uz: 'To‘q ko‘k', kk: 'Kók', ru: 'Тёмно-синий' }, hex: '#33415C' },
-  { id: 'grafit', name: { uz: 'Grafit', kk: 'Grafit', ru: 'Графит' }, hex: '#3B4147' },
-  { id: 'qora', name: { uz: 'Qora', kk: 'Qara', ru: 'Чёрный' }, hex: '#232326' },
+  { id: 'grafit', name: { uz: 'Grafit', kk: 'Grafit', ru: 'Графит' }, hex: '#4B5054' },
+  { id: 'yongoq', name: { uz: 'Yong‘oq', kk: 'Jańgaq', ru: 'Ореховый' }, hex: '#4A3B33' },
 ];
 
 /**
