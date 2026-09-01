@@ -1,6 +1,8 @@
 import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { useKiosk } from '../store/useKiosk';
 import { HANDLE_PLACE, HANDLES } from '../catalog/handles.generated';
+import { tintFor, TRIM_SAME, type Tint } from '../catalog/colors';
+import { recolorTrim, recolorLeaf, useRender } from '../render/recolor';
 import type { Leaf } from '../catalog/types';
 import { useElementSize } from './useElementSize';
 
@@ -19,18 +21,30 @@ const EASE = 'cubic-bezier(.4, 0, .2, 1)';
  *
  * Doors CROSSFADE as they change: the new leaf rises over the old and the old is
  * then dropped, so a swipe reads as one door dissolving into the next rather
- * than a hard cut. That, plus preloading every leaf so none flashes in blank, is
- * most of what makes the stage feel like a finished product rather than a demo.
+ * than a hard cut. The same trick carries a COLOUR change: the layer's identity
+ * is leaf + colour, so repainting fades exactly like swapping a door.
+ *
+ * The trim — casing ring, and corona above it where the room has one — is
+ * recoloured and laid between the room and the door, so it follows the paint
+ * while the leaf still covers the casing's inner edge.
  */
 export function WallStage({ onSwipe, children }: { onSwipe?: (delta: number) => void; children?: ReactNode }) {
   const roomId = useKiosk((s) => s.roomId);
   const leafId = useKiosk((s) => s.leafId);
+  const colorId = useKiosk((s) => s.colorId);
+  const trimColorId = useKiosk((s) => s.trimColorId);
   const leaves = useKiosk((s) => s.leaves);
   const rooms = useKiosk((s) => s.rooms);
+  const colors = useKiosk((s) => s.colors);
   const room = rooms.find((r) => r.id === roomId) ?? rooms[0];
   const leaf = leaves.find((l) => l.id === leafId) ?? leaves[0];
   const downX = useRef(0);
   const [ref, { width, height }] = useElementSize();
+
+  /** The paint. Null for 'oq' — the door as photographed, no pipeline at all. */
+  const paint = tintFor(colorId, colors);
+  /** The casing follows the door unless the customer overrode it on step 3. */
+  const trimPaint = trimColorId === TRIM_SAME ? paint : tintFor(trimColorId, colors);
 
   // Preload every door once, so swapping never shows a blank frame first.
   useEffect(() => {
@@ -38,17 +52,25 @@ export function WallStage({ onSwipe, children }: { onSwipe?: (delta: number) => 
     const h = new Image(); h.src = HANDLE_IMAGE;
   }, [leaves]);
 
-  // Keep the outgoing leaf mounted beneath the incoming one for the length of a
-  // crossfade, then prune back to just the current door.
-  const [layers, setLayers] = useState<Leaf[]>([leaf]);
+  // Keep the outgoing layer mounted beneath the incoming one for the length of
+  // a crossfade, then prune back to just the current one.
+  const current = { leaf, key: `${leaf.id}|${colorId}` };
+  const [layers, setLayers] = useState([current]);
   useEffect(() => {
-    setLayers((prev) => (prev[prev.length - 1]?.id === leaf.id ? prev : [...prev.slice(-1), leaf]));
-  }, [leaf]);
+    setLayers((prev) => (prev[prev.length - 1]?.key === current.key ? prev : [...prev.slice(-1), current]));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [current.key]);
   useEffect(() => {
     if (layers.length <= 1) return;
     const t = window.setTimeout(() => setLayers((l) => l.slice(-1)), 380);
     return () => window.clearTimeout(t);
   }, [layers]);
+
+  const trimUrl = useRender(
+    () => (trimPaint ? recolorTrim(room, trimPaint) : Promise.resolve(null)),
+    '',
+    [room, trimColorId, colorId]
+  );
 
   const swipe = {
     onPointerDown: onSwipe ? (e: React.PointerEvent) => (downX.current = e.clientX) : undefined,
@@ -77,15 +99,18 @@ export function WallStage({ onSwipe, children }: { onSwipe?: (delta: number) => 
    */
   const [lr, lg, lb] = room.light;
   const lmax = Math.max(lr, lg, lb);
-  const tint = `rgb(${Math.round((lr / lmax) * 255)}, ${Math.round((lg / lmax) * 255)}, ${Math.round((lb / lmax) * 255)})`;
+  const lightTint = `rgb(${Math.round((lr / lmax) * 255)}, ${Math.round((lg / lmax) * 255)}, ${Math.round((lb / lmax) * 255)})`;
 
   return (
     <div ref={ref} className="dc-stage" style={{ background: '#ded6ca' }} {...swipe}>
       <div style={{ position: 'absolute', inset: 0, background: `url(${room.image}) center/cover`, filter: 'blur(28px) brightness(.98)', transform: 'scale(1.1)', transition: `background-image 320ms ${EASE}` }} />
       <img src={room.image} alt="" style={{ position: 'absolute', left: offX, top: offY, width: dispW, height: dispH }} />
+      {trimUrl && (
+        <img src={trimUrl} alt="" draggable={false} style={{ position: 'absolute', left: offX, top: offY, width: dispW, height: dispH, pointerEvents: 'none' }} />
+      )}
 
       {width > 0 && layers.map((l, i) => (
-        <DoorLayer key={l.id} leaf={l} geom={geom} tint={tint} fade={i === layers.length - 1 && layers.length > 1} />
+        <DoorLayer key={l.key} leaf={l.leaf} paint={paint} paintKey={colorId} geom={geom} lightTint={lightTint} fade={i === layers.length - 1 && layers.length > 1} />
       ))}
       {children}
     </div>
@@ -101,13 +126,17 @@ export function WallStage({ onSwipe, children }: { onSwipe?: (delta: number) => 
  * shouts louder than the width difference it avoids. A door and its opening are
  * made for each other in reality, so filling is the honest composite.
  */
-function DoorLayer({ leaf, geom, tint, fade }: { leaf: Leaf; geom: { ox: number; oy: number; ow: number; oh: number }; tint: string; fade: boolean }) {
+function DoorLayer({ leaf, paint, paintKey, geom, lightTint, fade }: { leaf: Leaf; paint: Tint | null; paintKey: string; geom: { ox: number; oy: number; ow: number; oh: number }; lightTint: string; fade: boolean }) {
   const { ox, oy, ow, oh } = geom;
   const [op, setOp] = useState(fade ? 0 : 1);
   useEffect(() => {
     const r = requestAnimationFrame(() => setOp(1));
     return () => cancelAnimationFrame(r);
   }, []);
+
+  // The photographed door while the recolour renders — a frame of white is
+  // quieter than a frame of nothing.
+  const url = useRender(() => (paint ? recolorLeaf(leaf, paint) : Promise.resolve(leaf.image)), leaf.image, [leaf, paintKey]);
 
   const handle =
     leaf.handleSwappable && leaf.handleAt
@@ -127,8 +156,8 @@ function DoorLayer({ leaf, geom, tint, fade }: { leaf: Leaf; geom: { ox: number;
 
   return (
     <div style={{ position: 'absolute', left: ox, top: oy, width: ow, height: oh, opacity: op, transition: `opacity 340ms ${EASE}`, willChange: 'opacity' }}>
-      <img src={leaf.image} alt="" draggable={false} style={{ width: '100%', height: '100%', objectFit: 'fill', display: 'block' }} />
-      <div style={{ position: 'absolute', inset: 0, background: tint, mixBlendMode: 'multiply', pointerEvents: 'none' }} />
+      <img src={url} alt="" draggable={false} style={{ width: '100%', height: '100%', objectFit: 'fill', display: 'block' }} />
+      <div style={{ position: 'absolute', inset: 0, background: lightTint, mixBlendMode: 'multiply', pointerEvents: 'none' }} />
       {handle && <img src={HANDLE_IMAGE} alt="" draggable={false} style={{ position: 'absolute', ...handle, transformOrigin: 'center', pointerEvents: 'none' }} />}
     </div>
   );

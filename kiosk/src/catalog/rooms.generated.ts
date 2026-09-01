@@ -12,6 +12,10 @@ export const ROOMS: Room[] = [
     aspect: 0.75047,
     /** the doorway, as fractions of the image — measured, never estimated */
     open: { x: 0.28625, y: 0.14869, w: 0.45062, h: 0.77251 },
+    /** the nalichnik's pieces, as fractions of the image — measured, never estimated */
+    trimBoxes: [{ x: 0.27125, y: 0.12869, w: 0.48062, h: 0.79251 }],
+    /** the untouched photo, doubling as the bench's reopen source */
+    source: '/assets/rooms/living-thumb.jpg',
     /** the room's own light, as an RGB multiplier — relights the door to belong */
     light: [1.0187, 0.9957, 0.9853],
   },
@@ -24,6 +28,10 @@ export const ROOMS: Room[] = [
     aspect: 0.75117,
     /** the doorway, as fractions of the image — measured, never estimated */
     open: { x: 0.2625, y: 0.10657, w: 0.49812, h: 0.87324 },
+    /** the nalichnik's pieces, as fractions of the image — measured, never estimated */
+    trimBoxes: [{ x: 0.247, y: 0.0806, w: 0.522, h: 0.8992 }, { x: 0.218, y: 0.0466, w: 0.578, h: 0.034 }],
+    /** the untouched photo, doubling as the bench's reopen source */
+    source: '/assets/rooms/rose-thumb.jpg',
     /** the room's own light, as an RGB multiplier — relights the door to belong */
     light: [1.0349, 0.9903, 0.974],
   },
@@ -36,6 +44,10 @@ export const ROOMS: Room[] = [
     aspect: 0.75047,
     /** the doorway, as fractions of the image — measured, never estimated */
     open: { x: 0.29812, y: 0.17355, w: 0.42375, h: 0.73124 },
+    /** the nalichnik's pieces, as fractions of the image — measured, never estimated */
+    trimBoxes: [{ x: 0.266, y: 0.1555, w: 0.484, h: 0.7493 }, { x: 0.232, y: 0.115, w: 0.554, h: 0.0405 }, { x: 0.2405, y: 0.8354, w: 0.0658, h: 0.0672 }, { x: 0.706, y: 0.8225, w: 0.062, h: 0.081 }],
+    /** the untouched photo, doubling as the bench's reopen source */
+    source: '/assets/rooms/bedroom-thumb.jpg',
     /** the room's own light, as an RGB multiplier — relights the door to belong */
     light: [1.0146, 0.9976, 0.9877],
   },
@@ -48,6 +60,10 @@ export const ROOMS: Room[] = [
     aspect: 0.66667,
     /** the doorway, as fractions of the image — measured, never estimated */
     open: { x: 0.29, y: 0.21583, w: 0.40625, h: 0.61167 },
+    /** the nalichnik's pieces, as fractions of the image — measured, never estimated */
+    trimBoxes: [{ x: 0.265, y: 0.19, w: 0.45, h: 0.6375 }, { x: 0.222, y: 0.145, w: 0.516, h: 0.05 }, { x: 0.227, y: 0.777, w: 0.063, h: 0.051 }, { x: 0.692, y: 0.769, w: 0.066, h: 0.0595 }],
+    /** the untouched photo, doubling as the bench's reopen source */
+    source: '/assets/rooms/hall-thumb.jpg',
     /** the room's own light, as an RGB multiplier — relights the door to belong */
     light: [1.0731, 0.9886, 0.9342],
   },
@@ -60,6 +76,10 @@ export const ROOMS: Room[] = [
     aspect: 0.55859,
     /** the doorway, as fractions of the image — measured, never estimated */
     open: { x: 0.3513986013986014, y: 0.291015625, w: 0.29545454545454547, h: 0.443359375 },
+    /** the nalichnik's pieces, as fractions of the image — measured, never estimated */
+    trimBoxes: [{ x: 0.315, y: 0.257, w: 0.368, h: 0.517 }],
+    /** the untouched photo, doubling as the bench's reopen source */
+    source: '/assets/rooms/oak-thumb.jpg',
     /** the room's own light, as an RGB multiplier — relights the door to belong */
     light: [1.0176, 1.0044, 0.9776],
   },

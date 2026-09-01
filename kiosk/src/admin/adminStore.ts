@@ -1,4 +1,5 @@
 import type { Leaf, Room } from '../catalog/types';
+import type { DoorColor } from '../catalog/colors';
 
 /**
  * Everything the bench changes, kept in this browser.
@@ -14,6 +15,7 @@ const K = {
   leafEdits: 'dc.leafedits.v1',
   rooms: 'dc.rooms.v1',
   roomEdits: 'dc.roomedits.v1',
+  colors: 'dc.colors.v1',
 };
 
 /**
@@ -30,11 +32,19 @@ export type AdminLeaf = Leaf & {
   white?: boolean;
   handleChoice?: 'left' | 'right' | 'none';
 };
+/** What a trimBoxes[i] rectangle IS, for re-editing — recolorTrim() never reads this. */
+export type TrimRole = 'shaft' | 'crown' | 'footL' | 'footR' | 'extra';
 export type AdminRoom = Room & {
   createdAt: number;
   source?: string;
   box?: { x: number; y: number; w: number; h: number };
+  /** Parallel to `trimBoxes`, same order — the bench's memory of which box is which. */
+  trimRoles?: { role: TrimRole; label?: string }[];
 };
+/** A colour a salesperson registered at the bench — add-only, no edit or hide:
+ *  once a shade is mixed and named, there's no reason to take it away from a
+ *  door that already wears it. */
+export type AdminColor = DoorColor & { createdAt: number };
 /** A light edit that overlays a built-in OR admin item, never replacing it. */
 export interface Edit {
   name?: string;
@@ -108,6 +118,12 @@ export function restoreRoom(id: string) {
   if (e[id]) { delete e[id].hidden; write(K.roomEdits, e); }
 }
 
+// ---- colours ----
+export const loadColors = (): AdminColor[] => read<AdminColor[]>(K.colors, []);
+export function saveColor(color: AdminColor) {
+  write(K.colors, [...loadColors().filter((c) => c.id !== color.id), color]);
+}
+
 /**
  * Merge built-ins with the bench, then overlay edits.
  *
@@ -143,6 +159,10 @@ export function mergeRooms(base: Room[]): Room[] {
   return dedup(base, loadRooms())
     .filter((r) => !edits[r.id]?.hidden)
     .map((r) => (edits[r.id]?.name ? { ...r, name: { uz: edits[r.id].name!, kk: edits[r.id].name!, ru: edits[r.id].name! } } : r));
+}
+/** No edits to overlay — colours are add-only, so this is just the dedup. */
+export function mergeColors(base: DoorColor[]): DoorColor[] {
+  return dedup(base, loadColors());
 }
 
 /** True for a built-in item, whose pixels are in the bundle (hidden, not deleted). */

@@ -2,12 +2,14 @@ import { useKiosk } from './store/useKiosk';
 import { AppShell } from './ui/AppShell';
 import { Attract } from './screens/Attract';
 import { RoomStep } from './screens/RoomStep';
+import { ColorStep } from './screens/ColorStep';
 import { DoorStep } from './screens/DoorStep';
 import { Summary } from './screens/Summary';
 
 const SCREENS = {
   attract: Attract,
   room: RoomStep,
+  color: ColorStep,
   door: DoorStep,
   summary: Summary,
 } as const;

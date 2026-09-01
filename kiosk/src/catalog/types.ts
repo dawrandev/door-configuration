@@ -162,6 +162,19 @@ export interface Leaf {
   corners?: { x: number; y: number }[];
   white?: boolean;
   handleChoice?: 'left' | 'right' | 'none';
+  /**
+   * Regions the recolour must NOT touch, as fractions of the leaf: the handle
+   * it was photographed with, a brass medallion, the maker's logo. Hardware is
+   * not paint — recolor.ts pastes the original pixels back over these boxes.
+   */
+  keep?: { x: number; y: number; w: number; h: number }[];
+  /**
+   * Which colours (catalog/colors.ts ids) this model is actually sold in.
+   * Absent means every colour in the registry applies — the safe default,
+   * since it is what every door had before a product needed its own list.
+   * `'oq'` (as photographed) is never restricted by this: it isn't a paint.
+   */
+  colorIds?: string[];
 }
 
 /**
@@ -192,6 +205,26 @@ export interface Room {
   aspect: number;
   /** the doorway, as fractions of the image */
   open: { x: number; y: number; w: number; h: number };
+  /**
+   * The nalichnik — every piece of architrave trim that takes the door's paint,
+   * as a list of rectangles in image fractions. A real moulded surround is
+   * rarely one clean rectangle: the shaft ring around the opening, a crown
+   * above it, a flared foot block where a pilaster meets the floor — each is
+   * its own box here. recolor.ts crops their shared bounding box, derives ONE
+   * set of lighting passes over it (so pieces that meet — a foot against its
+   * shaft — read as continuous trim, not two independently-lit patches), then
+   * paints each box back, subtracting `open` from whichever ones overlap it.
+   * Measured per room, by eye against the photograph; absent rooms simply
+   * keep a white casing. A flush/modern room may need only one box (the ring);
+   * a classical one typically needs the ring, a crown, and two foot blocks.
+   */
+  trimBoxes?: { x: number; y: number; w: number; h: number }[];
+  /**
+   * The bench needs this to REOPEN a room and re-mark its doorway/trim — the
+   * same reason Leaf keeps `source`. `thumb` already IS this photo (untouched,
+   * full quality) for every built-in room, so it costs nothing to point here.
+   */
+  source?: string;
   /**
    * The room's own light as an RGB multiplier (≈1). The stage tints the door
    * with it so a neutral-white leaf takes on the room's warmth instead of

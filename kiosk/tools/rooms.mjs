@@ -18,10 +18,10 @@ import sharp from 'sharp';
 import path from 'node:path';
 import fs from 'node:fs';
 
-const SCENE = 'd:/laragon/www/door configurator/kiosk/public/assets/scene';
-const AI = 'd:/laragon/www/door configurator/rooms-ai';
-const OUT = 'd:/laragon/www/door configurator/kiosk/public/assets/rooms';
-const SHEET = 'd:/laragon/www/door configurator/kiosk/tools/_rooms-contact.jpg';
+const SCENE = 'd:/laragon/www/door-configuration/kiosk/public/assets/scene';
+const AI = 'd:/laragon/www/door-configuration/rooms-ai';
+const OUT = 'd:/laragon/www/door-configuration/kiosk/public/assets/rooms';
+const SHEET = 'd:/laragon/www/door-configuration/kiosk/tools/_rooms-contact.jpg';
 
 /**
  * The rooms, with the opening each one already has.
@@ -35,16 +35,33 @@ const ROOMS = [
     id: 'living', file: 'elita-line-room.jpg',
     name: { uz: 'Yashash xonasi', kk: 'Jasaw bólmesi', ru: 'Гостиная' },
     open: { x: 0.28625, y: 0.14869, w: 0.45062, h: 0.77251 },
+    // Flush, flat modern casing — no crown, no flared foot.
+    trimBoxes: [{ x: 0.27125, y: 0.12869, w: 0.48062, h: 0.79251 }],
   },
   {
     id: 'rose', file: 'elita-romb-room.jpg',
     name: { uz: 'Pushti xona', kk: 'Qızğılt bólme', ru: 'Розовая комната' },
     open: { x: 0.2625, y: 0.10657, w: 0.49812, h: 0.87324 },
+    // Fluted pilaster, constant width to the floor — no flared foot here.
+    trimBoxes: [
+      { x: 0.247, y: 0.0806, w: 0.522, h: 0.8992 }, // shaft ring
+      { x: 0.218, y: 0.0466, w: 0.578, h: 0.034 }, // crown
+    ],
   },
   {
     id: 'bedroom', file: 'elita-klassik-room.jpg',
     name: { uz: 'Yotoqxona', kk: 'Jatın bólme', ru: 'Спальня' },
     open: { x: 0.29812, y: 0.17355, w: 0.42375, h: 0.73124 },
+    // A plinth block flares past the shaft's own width at the floor — its own
+    // box, or the wider outer edge stays unpainted (the seller's own bug
+    // report: real photos, drawn from an admin panel far from us, showed a
+    // pale gap right there).
+    trimBoxes: [
+      { x: 0.266, y: 0.1555, w: 0.484, h: 0.7493 }, // shaft ring
+      { x: 0.232, y: 0.115, w: 0.554, h: 0.0405 }, // crown
+      { x: 0.2405, y: 0.8354, w: 0.0658, h: 0.0672 }, // left plinth foot
+      { x: 0.706, y: 0.8225, w: 0.062, h: 0.081 }, // right plinth foot
+    ],
   },
   {
     // Measured off this render's own luminance profile — reveals at x 464 and
@@ -54,6 +71,13 @@ const ROOMS = [
     id: 'hall', file: 'elita-oyna-room.jpg',
     name: { uz: 'Kirish xonasi', kk: 'Kiriw bólme', ru: 'Прихожая' },
     open: { x: 0.29, y: 0.21583, w: 0.40625, h: 0.61167 },
+    // Same flared-plinth shape as bedroom, more pronounced here.
+    trimBoxes: [
+      { x: 0.265, y: 0.19, w: 0.45, h: 0.6375 }, // shaft ring
+      { x: 0.222, y: 0.145, w: 0.516, h: 0.05 }, // crown
+      { x: 0.227, y: 0.777, w: 0.063, h: 0.051 }, // left plinth foot
+      { x: 0.692, y: 0.769, w: 0.066, h: 0.0595 }, // right plinth foot
+    ],
   },
   {
     /**
@@ -73,6 +97,9 @@ const ROOMS = [
     id: 'oak', file: 'ai-01.jpg', dir: AI,
     name: { uz: 'Eman zal', kk: 'Emen zal', ru: 'Дубовый зал' },
     open: { x: 201 / 572, y: 298 / 1024, w: 169 / 572, h: 454 / 1024 },
+    // Plain, thin frame — no crown, no flared foot, and the render never
+    // depicted a door leaf.
+    trimBoxes: [{ x: 0.315, y: 0.257, w: 0.368, h: 0.517 }],
   },
 ];
 
@@ -176,7 +203,11 @@ ${done
     thumb: '/assets/rooms/${r.id}-thumb.jpg',
     aspect: ${(r.W / r.H).toFixed(5)},
     /** the doorway, as fractions of the image — measured, never estimated */
-    open: { x: ${r.open.x}, y: ${r.open.y}, w: ${r.open.w}, h: ${r.open.h} },
+    open: { x: ${r.open.x}, y: ${r.open.y}, w: ${r.open.w}, h: ${r.open.h} },${r.trimBoxes ? `
+    /** the nalichnik's pieces, as fractions of the image — measured, never estimated */
+    trimBoxes: [${r.trimBoxes.map((b) => `{ x: ${b.x}, y: ${b.y}, w: ${b.w}, h: ${b.h} }`).join(', ')}],` : ''}
+    /** the untouched photo, doubling as the bench's reopen source */
+    source: '/assets/rooms/${r.id}-thumb.jpg',
     /** the room's own light, as an RGB multiplier — relights the door to belong */
     light: [${r.light.join(', ')}],
   },`
@@ -184,7 +215,7 @@ ${done
   .join('\n')}
 ];
 `;
-fs.writeFileSync('d:/laragon/www/door configurator/kiosk/src/catalog/rooms.generated.ts', tsOut);
+fs.writeFileSync('d:/laragon/www/door-configuration/kiosk/src/catalog/rooms.generated.ts', tsOut);
 console.log('catalogue → src/catalog/rooms.generated.ts');
 
 const TW = 380;

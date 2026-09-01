@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { COLOR, FONT, RADIUS, TYPE } from '../design/tokens';
+import { COLOR, FONT, RADIUS, RADIUS_SM, TYPE } from '../design/tokens';
 import { LEAVES as BASE_LEAVES } from '../catalog/leaves.generated';
 import { ROOMS as BASE_ROOMS } from '../catalog/rooms.generated';
 import type { Leaf, Room } from '../catalog/types';
@@ -19,6 +19,11 @@ import {
  * never deleted (its pixels are in the bundle) only hidden, and can be restored;
  * a bench item is deleted outright. Adding is the corner/box tool one tab over.
  * The customer never reaches here; staff type the address.
+ *
+ * Same ink-on-limestone chrome as the showroom (design/tokens.ts) — a
+ * salesperson moves between this and the client screen all day, and a second,
+ * unrelated dark "developer" theme here read as a different, unfinished
+ * product bolted on. One brand, one bench.
  */
 type Tab = 'doors' | 'rooms';
 
@@ -48,25 +53,37 @@ export function Admin() {
   return (
     <Shell>
       <div style={{ flex: 1, overflowY: 'auto', padding: '28px clamp(20px,4vw,56px)' }}>
-        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 24 }}>
-          <div style={{ display: 'flex', gap: 6, background: '#232120', border: '1px solid #3a3733', borderRadius: 999, padding: 4 }}>
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8, flexWrap: 'wrap', gap: 14 }}>
+          <div style={{ display: 'flex', gap: 4, background: COLOR.panel, border: `1px solid ${COLOR.line}`, borderRadius: 999, padding: 4 }}>
             {(['doors', 'rooms'] as Tab[]).map((t) => (
-              <button key={t} onClick={() => setTab(t)} style={pill(tab === t)}>{t === 'doors' ? `Eshiklar (${leaves.length})` : `Xonalar (${rooms.length})`}</button>
+              <button key={t} onClick={() => setTab(t)} style={pill(tab === t)}>{t === 'doors' ? `Eshiklar (${leaves.length})` : `Xonalar va nalichnik (${rooms.length})`}</button>
             ))}
           </div>
-          <div style={{ display: 'flex', gap: 12, alignItems: 'center' }}>
-            <a href="#/" style={{ color: '#9d9790', fontSize: 13, textDecoration: 'none' }}>Client sayt →</a>
-            <button onClick={() => setAdding(true)} style={{ padding: '11px 20px', borderRadius: RADIUS, border: 'none', background: COLOR.brass, color: '#1b1a18', fontWeight: 600, cursor: 'pointer', fontSize: 14 }}>
+          <div style={{ display: 'flex', gap: 14, alignItems: 'center' }}>
+            <a href="#/" style={{ ...TYPE.small, color: COLOR.inkSoft, textDecoration: 'none' }}>Client sayt →</a>
+            <button onClick={() => setAdding(true)} style={primaryBtn}>
               + {tab === 'doors' ? 'Yangi eshik' : 'Yangi xona'}
             </button>
           </div>
         </div>
 
+        <div style={{ ...TYPE.small, color: COLOR.inkSoft, marginBottom: 22 }}>
+          {tab === 'doors'
+            ? 'Eshikning shakli (4 burchak) va u sotiladigan ranglar shu yerda belgilanadi.'
+            : 'Devor fotosurati, eshik teshigi va nalichnik (uning ranglanadigan qismlari) shu yerda belgilanadi.'}
+        </div>
+
         {tab === 'doors' ? (
-          <Grid>
-            {leaves.map((l) => <DoorCard key={l.id} leaf={l} onEdit={() => setEditLeafItem(l as AdminLeaf)} />)}
-            {hiddenLeaves.map((id) => <HiddenCard key={id} label={BASE_LEAVES.find((l) => l.id === id)?.name.uz ?? id} onRestore={() => restoreLeaf(id)} />)}
-          </Grid>
+          leaves.length === 0 && hiddenLeaves.length === 0 ? (
+            <EmptyState label="Hozircha eshiklar yo‘q — yuqoridagi tugma bilan qo‘shing" />
+          ) : (
+            <Grid>
+              {leaves.map((l) => <DoorCard key={l.id} leaf={l} onEdit={() => setEditLeafItem(l as AdminLeaf)} />)}
+              {hiddenLeaves.map((id) => <HiddenCard key={id} label={BASE_LEAVES.find((l) => l.id === id)?.name.uz ?? id} onRestore={() => restoreLeaf(id)} />)}
+            </Grid>
+          )
+        ) : rooms.length === 0 && hiddenRooms.length === 0 ? (
+          <EmptyState label="Hozircha xonalar yo‘q — yuqoridagi tugma bilan qo‘shing" />
         ) : (
           <Grid>
             {rooms.map((r) => <RoomCard key={r.id} room={r} onEdit={() => setEditRoomItem(r as AdminRoom)} />)}
@@ -87,9 +104,9 @@ function DoorCard({ leaf, onEdit }: { leaf: Leaf; onEdit: () => void }) {
   const canReedit = !!leaf.source || !builtIn;
   return (
     <Card>
-      <div style={{ aspectRatio: '0.42', background: '#efece6', borderRadius: 8, overflow: 'hidden', position: 'relative' }}>
+      <div style={{ aspectRatio: '0.42', background: COLOR.paper, borderRadius: RADIUS_SM, overflow: 'hidden', position: 'relative' }}>
         <img src={leaf.image} alt="" style={{ width: '100%', height: '100%', objectFit: 'contain' }} />
-        {builtIn && <span style={badge}>{overridden ? 'tahrirlangan' : 'tayyor'}</span>}
+        {builtIn ? <span style={badge}>{overridden ? 'tahrirlangan' : 'tayyor'}</span> : <span style={badgeAdded}>qo‘shilgan</span>}
       </div>
       <input value={name} onChange={(e) => setName(e.target.value)} onBlur={() => name !== leaf.name.uz && editLeaf(leaf.id, { name })} style={cardInput} />
       <div style={{ display: 'flex', gap: 8, marginTop: 10 }}>
@@ -107,8 +124,8 @@ function RoomCard({ room, onEdit }: { room: Room; onEdit: () => void }) {
   const canReedit = !!(room as AdminRoom).source || !builtIn;
   return (
     <Card>
-      <div style={{ aspectRatio: '1.2', background: `#ddd6c8 url(${room.thumb ?? room.image}) center 28%/cover`, borderRadius: 8, position: 'relative' }}>
-        {builtIn && <span style={badge}>{overridden ? 'tahrirlangan' : 'tayyor'}</span>}
+      <div style={{ aspectRatio: '1.2', background: `${COLOR.panel} url(${room.thumb ?? room.image}) center 28%/cover`, borderRadius: RADIUS_SM, position: 'relative' }}>
+        {builtIn ? <span style={badge}>{overridden ? 'tahrirlangan' : 'tayyor'}</span> : <span style={badgeAdded}>qo‘shilgan</span>}
       </div>
       <input value={name} onChange={(e) => setName(e.target.value)} onBlur={() => name !== room.name.uz && editRoom(room.id, { name })} style={cardInput} />
       <div style={{ display: 'flex', gap: 8, marginTop: 10 }}>
@@ -122,38 +139,56 @@ function RoomCard({ room, onEdit }: { room: Room; onEdit: () => void }) {
 function HiddenCard({ label, onRestore }: { label: string; onRestore: () => void }) {
   return (
     <Card>
-      <div style={{ aspectRatio: '1.2', background: '#1b1a18', borderRadius: 8, display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#5c574f', fontSize: 13 }}>Yashirilgan</div>
-      <div style={{ ...TYPE.small, color: '#9d9790', marginTop: 8 }}>{label}</div>
-      <button onClick={onRestore} style={{ width: '100%', marginTop: 10, padding: '9px', borderRadius: RADIUS, border: '1px solid #454039', background: 'transparent', color: '#cfcac3', cursor: 'pointer', fontSize: 13 }}>Qaytarish</button>
+      <div style={{ aspectRatio: '1.2', background: COLOR.paper, borderRadius: RADIUS_SM, display: 'flex', alignItems: 'center', justifyContent: 'center', color: COLOR.inkSoft, fontSize: 13 }}>Yashirilgan</div>
+      <div style={{ ...TYPE.small, color: COLOR.inkSoft, marginTop: 8 }}>{label}</div>
+      <button onClick={onRestore} style={ghostBtn}>Qaytarish</button>
     </Card>
+  );
+}
+
+function EmptyState({ label }: { label: string }) {
+  return (
+    <div style={{ border: `1.5px dashed ${COLOR.lineStrong}`, borderRadius: RADIUS, padding: '64px 24px', textAlign: 'center', color: COLOR.inkSoft, ...TYPE.body }}>
+      {label}
+    </div>
   );
 }
 
 // ---- chrome ----
 function Shell({ children }: { children: React.ReactNode }) {
-  return <div style={{ position: 'fixed', inset: 0, display: 'flex', background: '#1b1a18', color: '#efece6', fontFamily: FONT.sans }}>{children}</div>;
+  return <div style={{ position: 'fixed', inset: 0, display: 'flex', background: COLOR.paper, color: COLOR.ink, fontFamily: FONT.sans }}>{children}</div>;
 }
 function Grid({ children }: { children: React.ReactNode }) {
   return <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(200px, 1fr))', gap: 18 }}>{children}</div>;
 }
 function Card({ children }: { children: React.ReactNode }) {
-  return <div style={{ background: '#232120', border: '1px solid #3a3733', borderRadius: RADIUS, padding: 12 }}>{children}</div>;
+  return <div style={{ background: '#fff', border: `1px solid ${COLOR.line}`, borderRadius: RADIUS, padding: 12, boxShadow: '0 1px 3px rgba(35,32,27,.05)' }}>{children}</div>;
 }
 function EditBtn({ onClick }: { onClick: () => void }) {
-  return (
-    <button onClick={onClick} style={{ flex: 1, padding: '9px', borderRadius: RADIUS, border: '1px solid #454039', background: 'transparent', color: '#cfcac3', cursor: 'pointer', fontSize: 13 }}>
-      Tahrirlash
-    </button>
-  );
+  return <button onClick={onClick} style={{ ...ghostBtn, flex: 1, marginTop: 0 }}>Tahrirlash</button>;
 }
 function DeleteBtn({ onClick, kind }: { onClick: () => void; kind: 'delete' | 'hide' | 'restore' }) {
   const label = kind === 'delete' ? 'O‘chirish' : kind === 'restore' ? 'Aslini qaytarish' : 'Yashirish';
   return (
-    <button onClick={onClick} style={{ flex: 1, padding: '9px', borderRadius: RADIUS, border: '1px solid #5a3a3a', background: 'transparent', color: '#e08a8a', cursor: 'pointer', fontSize: 13 }}>
+    <button onClick={onClick} style={{ flex: 1, padding: '9px', borderRadius: RADIUS_SM, border: `1px solid ${DANGER.border}`, background: 'transparent', color: DANGER.text, cursor: 'pointer', fontSize: 13, fontFamily: 'inherit' }}>
       {label}
     </button>
   );
 }
-const pill = (on: boolean): React.CSSProperties => ({ padding: '9px 18px', borderRadius: 999, border: 'none', cursor: 'pointer', fontSize: 14, fontWeight: on ? 600 : 400, background: on ? COLOR.brass : 'transparent', color: on ? '#1b1a18' : '#cfcac3' });
-const cardInput: React.CSSProperties = { width: '100%', marginTop: 10, padding: '7px 9px', borderRadius: 6, background: '#1b1a18', color: '#efece6', border: '1px solid #454039', fontSize: 13, fontFamily: 'inherit' };
-const badge: React.CSSProperties = { position: 'absolute', top: 6, left: 6, fontSize: 10, letterSpacing: '.06em', color: '#1b1a18', background: 'rgba(232,236,230,.85)', padding: '2px 7px', borderRadius: 999 };
+
+/** A muted rust, not a bright web red — the one place the warm palette needs a
+ *  "stop" colour, kept in the same family instead of a jarring foreign hue. */
+const DANGER = { text: '#A6432C', border: 'rgba(166,67,44,.35)', bg: 'rgba(166,67,44,.07)' };
+
+const pill = (on: boolean): React.CSSProperties => ({
+  padding: '9px 18px', borderRadius: 999, border: 'none', cursor: 'pointer', fontSize: 14, fontWeight: on ? 600 : 400, fontFamily: 'inherit',
+  background: on ? COLOR.ink : 'transparent', color: on ? COLOR.onInk : COLOR.inkSoft,
+});
+const primaryBtn: React.CSSProperties = { padding: '11px 20px', borderRadius: RADIUS, border: 'none', background: COLOR.ink, color: COLOR.onInk, fontWeight: 600, cursor: 'pointer', fontSize: 14, fontFamily: 'inherit' };
+const ghostBtn: React.CSSProperties = { width: '100%', marginTop: 10, padding: '9px', borderRadius: RADIUS_SM, border: `1px solid ${COLOR.lineStrong}`, background: 'transparent', color: COLOR.ink, cursor: 'pointer', fontSize: 13, fontFamily: 'inherit' };
+const cardInput: React.CSSProperties = { width: '100%', marginTop: 10, padding: '7px 9px', borderRadius: RADIUS_SM, background: COLOR.paper, color: COLOR.ink, border: `1px solid ${COLOR.line}`, fontSize: 13, fontFamily: 'inherit' };
+const badge: React.CSSProperties = { position: 'absolute', top: 6, left: 6, ...TYPE.label, fontSize: 10, color: COLOR.ink, background: 'rgba(255,255,255,.88)', padding: '3px 8px', borderRadius: 999 };
+/** A bench-added item never gets `badge` (that's reserved for built-ins) — it
+ *  otherwise carries no marker at all, so "tayyor / tahrirlangan / qo'shilgan"
+ *  reads as three states only by IMPLIED absence. This makes it explicit. */
+const badgeAdded: React.CSSProperties = { ...badge, color: COLOR.onInk, background: 'rgba(143,113,69,.92)' };

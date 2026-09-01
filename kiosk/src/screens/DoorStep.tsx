@@ -1,5 +1,8 @@
 import { useEffect, useRef } from 'react';
 import { COLOR, RADIUS, TYPE } from '../design/tokens';
+import { tintFor } from '../catalog/colors';
+import { recolorLeaf, useRender } from '../render/recolor';
+import type { Leaf } from '../catalog/types';
 import { T, tr } from '../i18n/strings';
 import { useKiosk } from '../store/useKiosk';
 import { Ornament } from '../ui/Ornament';
@@ -14,6 +17,12 @@ import { WallStage } from '../ui/WallStage';
  * That is the whole interaction, and it is why the room can stay put while the
  * door changes under it: the salesperson runs a thumb along the strip and the
  * doorway keeps filling with a different door.
+ *
+ * Paint comes AFTER the model now, not before: a colour is something a
+ * specific door is sold in, not a universal swatch, so every tile here shows
+ * its leaf as photographed (or in whatever paint is already picked, if the
+ * customer came back to change models) rather than a colour this door may
+ * not even offer.
  */
 export function DoorStep() {
   const lang = useKiosk((s) => s.lang);
@@ -86,11 +95,11 @@ export function DoorStep() {
 
       <div className="dc-panel" style={{ background: COLOR.paper, padding: 'clamp(24px, 3vw, 40px)' }}>
         <div style={{ display: 'flex', alignItems: 'flex-end', justifyContent: 'space-between', gap: 16 }}>
-          <StepHeader kicker={tr(T.step, lang)} step="02 / 03" title={tr(T.step2, lang)} />
+          <StepHeader kicker={tr(T.step, lang)} step="02 / 04" title={tr(T.step2, lang)} />
           <div style={{ ...TYPE.small, color: COLOR.inkSoft, textAlign: 'right' }}>{tr(T.swipehint, lang)}</div>
         </div>
 
-        <div style={{ flex: 1.2 }} />
+        <div style={{ flex: 1 }} />
 
         <div style={{ position: 'relative', margin: '0 -8px' }}>
           <div
@@ -143,8 +152,8 @@ export function DoorStep() {
                         : `inset 0 0 0 1px ${COLOR.line}`,
                     }}
                   >
-                    {/* the very leaf the stage shows, so tile and door are one image */}
-                    <img src={l.image} alt="" draggable={false} style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', objectFit: 'contain', display: 'block' }} />
+                    {/* the very leaf the stage shows, wearing the chosen paint */}
+                    <TileImage leaf={l} />
                   </div>
                   <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6, marginTop: 10 }}>
                     {selected && <Ornament width={30} strokeWidth={3.4} />}
@@ -166,4 +175,17 @@ export function DoorStep() {
       </div>
     </div>
   );
+}
+
+/**
+ * A carousel tile wearing the chosen paint, so the strip and the stage stay
+ * one image. The recolour is cached by the engine; the photographed leaf
+ * stands in for the few frames the first composite takes.
+ */
+function TileImage({ leaf }: { leaf: Leaf }) {
+  const colorId = useKiosk((s) => s.colorId);
+  const colors = useKiosk((s) => s.colors);
+  const paint = tintFor(colorId, colors);
+  const url = useRender(() => (paint ? recolorLeaf(leaf, paint) : Promise.resolve(leaf.image)), leaf.image, [leaf, colorId]);
+  return <img src={url} alt="" draggable={false} style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', objectFit: 'contain', display: 'block' }} />;
 }

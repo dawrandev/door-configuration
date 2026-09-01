@@ -39,7 +39,7 @@ export function Summary() {
       </WallStage>
 
       <div className="dc-panel" style={{ background: COLOR.paper, padding: 'clamp(24px, 3vw, 40px)', minHeight: 0 }}>
-        <Eyebrow>{tr(T.step, lang)} · 03 / 03</Eyebrow>
+        <Eyebrow>{tr(T.step, lang)} · 04 / 04</Eyebrow>
         <h2 style={{ ...TYPE.h1, margin: '10px 0 0', color: COLOR.ink }}>{tr(T.sumt, lang)}</h2>
 
         <div className="scr" style={{ flex: 1, overflowY: 'auto', padding: '20px 0', minHeight: 80 }}>

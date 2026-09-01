@@ -30,7 +30,7 @@ export function RoomStep() {
       </div>
 
       <div style={{ padding: 'clamp(24px, 3vw, 36px) clamp(24px, 4vw, 56px) 0' }}>
-        <StepHeader kicker={tr(T.step, lang)} step="01 / 03" title={tr(T.step1, lang)} />
+        <StepHeader kicker={tr(T.step, lang)} step="01 / 04" title={tr(T.step1, lang)} />
       </div>
 
       <div className="scr" style={{ flex: 1, overflowY: 'auto', padding: 'clamp(24px, 3vw, 34px) clamp(24px, 4vw, 56px) 140px' }}>
