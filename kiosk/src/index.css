@@ -86,6 +86,16 @@ html.kiosk-locked #root {
   flex-direction: column;
 }
 
+/*
+ * The admin bench's side panel — same idea as .dc-panel (a fixed-feeling
+ * sidebar beside a photo/canvas) but sized off the viewport instead of a
+ * hard pixel width, so it fits whatever monitor the shop actually has
+ * instead of clipping or leaving dead space at a fixed 380px.
+ */
+.dc-admin-panel {
+  flex: 0 0 clamp(340px, 30vw, 460px);
+}
+
 body {
   -webkit-user-select: none;
   user-select: none;
