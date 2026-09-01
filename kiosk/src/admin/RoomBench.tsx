@@ -2,7 +2,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { COLOR, RADIUS, RADIUS_SM, TOUCH_MIN, TYPE } from '../design/tokens';
 import { processRoom, type Rect } from './roomProcess';
 import { saveRoom, type AdminRoom, type TrimRole } from './adminStore';
-import { Panel, Label, inp, primaryBtn, ghostBtn, linkBtn, Handle, DimHUD } from './DoorBench';
+import { Panel, PanelBody, PanelFooter, Label, Section, inp, AdminPrimaryButton, Handle, DimHUD, DANGER, useToast } from './adminKit';
 import { recolorTrim } from '../render/recolor';
 import type { Tint } from '../catalog/colors';
 import type { Room } from '../catalog/types';
@@ -236,7 +236,8 @@ export function RoomBench({ onDone, edit }: { onDone: () => void; edit?: AdminRo
   const [activeTrimId, setActiveTrimId] = useState<string | null>(null);
   const [showTint, setShowTint] = useState(true);
   const [zoom, setZoom] = useState(1);
-  const [result, setResult] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+  const toast = useToast();
 
   const wrapRef = useRef<HTMLDivElement>(null);
   /** The doorway drags as a true rectangle (a real opening is one); a trim
@@ -273,7 +274,6 @@ export function RoomBench({ onDone, edit }: { onDone: () => void; edit?: AdminRo
       setBox({ x: 0.34, y: 0.18, w: 0.32, h: 0.66 });
       setTrim([]);
       setActiveTrimId(null);
-      setResult(null);
       if (!name) setName(f.name.replace(/\.[^.]+$/, ''));
     };
     el.src = URL.createObjectURL(f);
@@ -382,12 +382,9 @@ export function RoomBench({ onDone, edit }: { onDone: () => void; edit?: AdminRo
     return () => window.clearTimeout(t);
   }, [img, box, trim, source, edit]);
 
-  const preview = () => {
-    if (!img || !box) return;
-    setResult(processRoom(img, box).image);
-  };
   const publish = () => {
     if (!img || !box) return;
+    setBusy(true);
     const p = processRoom(img, box);
     // The chooser thumbnail is the room untouched (door and all); the compact
     // source doubles as it, so no black recess shows on the selection screen.
@@ -406,6 +403,8 @@ export function RoomBench({ onDone, edit }: { onDone: () => void; edit?: AdminRo
       source: source ?? edit?.source,
       box,
     });
+    setBusy(false);
+    toast('Saqlandi ✓');
     onDone();
   };
 
@@ -416,8 +415,8 @@ export function RoomBench({ onDone, edit }: { onDone: () => void; edit?: AdminRo
   const draggingRect = dc?.kind === 'corner' ? box : activeTrim?.rect ?? null;
 
   return (
-    <div style={{ display: 'flex', height: '100%', width: '100%' }}>
-      <div style={{ flex: 1, minWidth: 0, overflow: 'auto', padding: 20, display: 'flex', alignItems: 'flex-start', justifyContent: 'center', background: COLOR.studio }}>
+    <div style={{ display: 'flex', height: '100%', width: '100%', minHeight: 0 }}>
+      <div className="scr" style={{ flex: 1, minWidth: 0, overflow: 'auto', padding: 20, display: 'flex', alignItems: 'flex-start', justifyContent: 'center', background: COLOR.studio }}>
         {!img && (
           <label style={{ margin: 'auto', textAlign: 'center', cursor: 'pointer', border: `1.5px dashed ${COLOR.lineStrong}`, borderRadius: RADIUS, padding: '64px 80px', background: '#fff' }}>
             <div style={{ ...TYPE.h2, color: COLOR.ink, marginBottom: 8 }}>Xona rasmini yuklang</div>
@@ -480,99 +479,103 @@ export function RoomBench({ onDone, edit }: { onDone: () => void; edit?: AdminRo
       </div>
 
       <Panel>
-        <button onClick={onDone} style={linkBtn}>← Ro‘yxatga qaytish</button>
-        <div style={{ ...TYPE.h2, color: COLOR.ink, margin: '10px 0 4px' }}>{edit ? 'Xonani tahrirlash' : 'Yangi xona'}</div>
-        <div style={{ ...TYPE.small, color: COLOR.inkSoft, marginBottom: 18 }}>
-          Eshik turadigan <b>teshikni</b> to‘rtburchak bilan belgilang (u qorong‘i
-          o‘yiqqa aylanadi), so‘ng pastda <b>nalichnikning</b> ranglanadigan
-          qismlarini belgilang.
-        </div>
-        {img && box && (
-          <>
-            <Label>Nomi</Label>
-            <input value={name} onChange={(e) => setName(e.target.value)} style={inp} placeholder="Masalan: Yorug‘ zal" />
-            <Label>Kattalashtirish — {(zoom * 100).toFixed(0)}%</Label>
-            <input type="range" min={0.08} max={2} step={0.02} value={zoom} onChange={(e) => setZoom(+e.target.value)} style={{ width: '100%' }} />
-            <Label>Teshikni surish</Label>
-            <MoveResize onMove={(dx, dy) => nudgeOpen(dx, dy, 'move')} onSize={(dx, dy) => nudgeOpen(dx, dy, 'size')} />
+        <PanelBody>
+          <div style={{ ...TYPE.h2, color: COLOR.ink, margin: '0 0 4px' }}>{edit ? 'Xonani tahrirlash' : 'Yangi xona'}</div>
+          <div style={{ ...TYPE.small, color: COLOR.inkSoft }}>
+            Eshik turadigan <b>teshikni</b> to‘rtburchak bilan belgilang (u qorong‘i
+            o‘yiqqa aylanadi), so‘ng pastda <b>nalichnikning</b> ranglanadigan
+            qismlarini belgilang.
+          </div>
+          {img && box && (
+            <>
+              <Section title="Nomlanish">
+                <Label>Nomi</Label>
+                <input value={name} onChange={(e) => setName(e.target.value)} style={inp} placeholder="Masalan: Yorug‘ zal" />
+              </Section>
 
-            <div style={{ display: 'flex', alignItems: 'baseline', justifyContent: 'space-between', marginTop: 22 }}>
-              <Label>Nalichnik qismlari</Label>
-              <label style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 11, color: COLOR.inkSoft, cursor: 'pointer' }}>
-                <input type="checkbox" checked={showTint} onChange={(e) => setShowTint(e.target.checked)} />
-                Ranglab ko‘rsatish
-              </label>
-            </div>
-            <div style={{ fontSize: 12, color: COLOR.inkSoft, lineHeight: 1.5, marginBottom: 10 }}>
-              Bo‘yoq shu qismlarga tushadi. {trim.length === 0 && <span style={{ color: '#A6432C' }}>Bo‘sh qoldirilsa, nalichnik oq bo‘lib qoladi.</span>}
-            </div>
+              <Section title="Teshik">
+                <Label>Kattalashtirish — {(zoom * 100).toFixed(0)}%</Label>
+                <input type="range" min={0.08} max={2} step={0.02} value={zoom} onChange={(e) => setZoom(+e.target.value)} style={{ width: '100%' }} />
+                <Label>Teshikni surish</Label>
+                <MoveResize onMove={(dx, dy) => nudgeOpen(dx, dy, 'move')} onSize={(dx, dy) => nudgeOpen(dx, dy, 'size')} />
+              </Section>
 
-            <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
-              {ROLE_ORDER.map((role) => {
-                const present = trim.some((t) => t.role === role);
-                return (
-                  <RoleChip key={role} label={ROLE_META[role].label} color={ROLE_META[role].color} disabled={present} onClick={() => addTrim(role)} />
-                );
-              })}
-              <RoleChip label="Boshqa" color={ROLE_META.extra.color} onClick={() => addTrim('extra')} />
-            </div>
-
-            <div style={{ marginTop: 10 }}>
-              {trim.map((t) => {
-                const meta = ROLE_META[t.role];
-                const active = t.id === activeTrimId;
-                return (
-                  <div key={t.id} style={{ marginTop: 6 }}>
-                    <div
-                      onClick={() => setActiveTrimId(active ? null : t.id)}
-                      style={{ display: 'flex', alignItems: 'center', gap: 8, minHeight: TOUCH_MIN, padding: '7px 9px', borderRadius: RADIUS_SM, background: active ? 'rgba(143,113,69,.08)' : COLOR.paper, border: `1px solid ${active ? meta.color : COLOR.line}`, cursor: 'pointer' }}
-                    >
-                      <span style={{ width: 11, height: 11, borderRadius: 999, background: meta.color, flex: '0 0 auto' }} />
-                      {t.role === 'extra' ? (
-                        <input
-                          value={t.label ?? ''}
-                          onChange={(e) => setTrim((ts) => ts.map((x) => (x.id === t.id ? { ...x, label: e.target.value } : x)))}
-                          onClick={(e) => e.stopPropagation()}
-                          style={{ flex: 1, background: 'transparent', border: 'none', color: COLOR.ink, fontSize: 13, fontFamily: 'inherit', padding: 0 }}
-                        />
-                      ) : (
-                        <span style={{ flex: 1, fontSize: 13, color: COLOR.ink }}>{meta.label}</span>
-                      )}
-                      <button
-                        onClick={(e) => { e.stopPropagation(); removeTrim(t.id); }}
-                        style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', width: 40, height: 40, flex: '0 0 auto', background: 'none', border: 'none', color: '#A6432C', cursor: 'pointer', fontSize: 16, lineHeight: 1, padding: 0 }}
-                        aria-label="O‘chirish"
-                      >
-                        ✕
-                      </button>
-                    </div>
-                    {active && (
-                      <div style={{ marginTop: 8, paddingLeft: 4 }}>
-                        <div style={{ fontSize: 11, color: COLOR.inkSoft, lineHeight: 1.5 }}>
-                          Har bir nuqta <b>mustaqil</b> — bittasini tortsangiz, faqat o‘sha
-                          siljiydi. Chiziq bo‘ylab <b>bir marta bosib</b> yangi nuqta qo‘shing.
-                          Nuqtani <b>ikki marta bosish</b> uni o‘chiradi (kamida 3 ta nuqta qolishi kerak).
-                        </div>
-                        <div style={{ marginTop: 8 }}>
-                          <MoveResize onMove={(dx, dy) => nudgeTrim(t.id, dx, dy)} onSize={() => {}} sizeless />
-                        </div>
-                      </div>
-                    )}
-                  </div>
-                );
-              })}
-            </div>
-
-            <button onClick={preview} style={ghostBtn}>Ko‘rish</button>
-            {result && (
-              <div style={{ marginTop: 14 }}>
-                <div style={{ display: 'flex', justifyContent: 'center', background: COLOR.paper, border: `1px solid ${COLOR.line}`, borderRadius: RADIUS, padding: 10 }}>
-                  <img src={result} alt="" style={{ maxHeight: 300, borderRadius: RADIUS_SM }} />
+              <Section title="Nalichnik qismlari">
+                <div style={{ display: 'flex', alignItems: 'baseline', justifyContent: 'space-between' }}>
+                  <span style={{ fontSize: 12, color: COLOR.inkSoft, lineHeight: 1.5 }}>
+                    Bo‘yoq shu qismlarga tushadi. {trim.length === 0 && <span style={{ color: DANGER.text }}>Bo‘sh qoldirilsa, nalichnik oq bo‘lib qoladi.</span>}
+                  </span>
+                  <label style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 11, color: COLOR.inkSoft, cursor: 'pointer', flex: '0 0 auto', marginLeft: 10 }}>
+                    <input type="checkbox" checked={showTint} onChange={(e) => setShowTint(e.target.checked)} />
+                    Ranglab ko‘rsatish
+                  </label>
                 </div>
-                <button onClick={publish} style={primaryBtn}>Katalogga qo‘shish ✓</button>
-              </div>
-            )}
-          </>
+
+                <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginTop: 10 }}>
+                  {ROLE_ORDER.map((role) => {
+                    const present = trim.some((t) => t.role === role);
+                    return (
+                      <RoleChip key={role} label={ROLE_META[role].label} color={ROLE_META[role].color} disabled={present} onClick={() => addTrim(role)} />
+                    );
+                  })}
+                  <RoleChip label="Boshqa" color={ROLE_META.extra.color} onClick={() => addTrim('extra')} />
+                </div>
+
+                <div style={{ marginTop: 10 }}>
+                  {trim.map((t) => {
+                    const meta = ROLE_META[t.role];
+                    const active = t.id === activeTrimId;
+                    return (
+                      <div key={t.id} style={{ marginTop: 6 }}>
+                        <div
+                          onClick={() => setActiveTrimId(active ? null : t.id)}
+                          style={{ display: 'flex', alignItems: 'center', gap: 8, minHeight: TOUCH_MIN, padding: '7px 9px', borderRadius: RADIUS_SM, background: active ? 'rgba(143,113,69,.08)' : '#fff', border: `1px solid ${active ? meta.color : COLOR.line}`, cursor: 'pointer' }}
+                        >
+                          <span style={{ width: 11, height: 11, borderRadius: 999, background: meta.color, flex: '0 0 auto' }} />
+                          {t.role === 'extra' ? (
+                            <input
+                              value={t.label ?? ''}
+                              onChange={(e) => setTrim((ts) => ts.map((x) => (x.id === t.id ? { ...x, label: e.target.value } : x)))}
+                              onClick={(e) => e.stopPropagation()}
+                              style={{ flex: 1, background: 'transparent', border: 'none', color: COLOR.ink, fontSize: 13, fontFamily: 'inherit', padding: 0 }}
+                            />
+                          ) : (
+                            <span style={{ flex: 1, fontSize: 13, color: COLOR.ink }}>{meta.label}</span>
+                          )}
+                          <button
+                            onClick={(e) => { e.stopPropagation(); removeTrim(t.id); }}
+                            style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', width: 40, height: 40, flex: '0 0 auto', background: 'none', border: 'none', color: DANGER.text, cursor: 'pointer', fontSize: 16, lineHeight: 1, padding: 0 }}
+                            aria-label="O‘chirish"
+                          >
+                            ✕
+                          </button>
+                        </div>
+                        {active && (
+                          <div style={{ marginTop: 8, paddingLeft: 4 }}>
+                            <div style={{ fontSize: 11, color: COLOR.inkSoft, lineHeight: 1.5 }}>
+                              Har bir nuqta <b>mustaqil</b> — bittasini tortsangiz, faqat o‘sha
+                              siljiydi. Chiziq bo‘ylab <b>bir marta bosib</b> yangi nuqta qo‘shing.
+                              Nuqtani <b>ikki marta bosish</b> uni o‘chiradi (kamida 3 ta nuqta qolishi kerak).
+                            </div>
+                            <div style={{ marginTop: 8 }}>
+                              <MoveResize onMove={(dx, dy) => nudgeTrim(t.id, dx, dy)} onSize={() => {}} sizeless />
+                            </div>
+                          </div>
+                        )}
+                      </div>
+                    );
+                  })}
+                </div>
+              </Section>
+            </>
+          )}
+        </PanelBody>
+        {img && box && (
+          <PanelFooter>
+            <AdminPrimaryButton onClick={publish} disabled={busy}>
+              {busy ? 'Saqlanmoqda…' : 'Katalogga qo‘shish ✓'}
+            </AdminPrimaryButton>
+          </PanelFooter>
         )}
       </Panel>
     </div>

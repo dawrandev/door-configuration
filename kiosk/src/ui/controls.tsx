@@ -11,15 +11,18 @@ import { Ornament } from './Ornament';
 export function PrimaryButton({
   children,
   onClick,
+  disabled,
   style,
 }: {
   children: ReactNode;
   onClick: () => void;
+  disabled?: boolean;
   style?: CSSProperties;
 }) {
   return (
     <button
       onClick={onClick}
+      disabled={disabled}
       className="dc-lift"
       style={{
         minHeight: 54,
@@ -31,12 +34,13 @@ export function PrimaryButton({
         fontFamily: FONT.display,
         fontSize: '1.05rem',
         letterSpacing: '-0.01em',
-        cursor: 'pointer',
+        cursor: disabled ? 'default' : 'pointer',
+        opacity: disabled ? 0.45 : 1,
         display: 'inline-flex',
         alignItems: 'center',
         justifyContent: 'center',
         gap: 12,
-        boxShadow: '0 10px 26px rgba(35,32,27,.16)',
+        boxShadow: disabled ? 'none' : '0 10px 26px rgba(35,32,27,.16)',
         ...style,
       }}
     >
@@ -48,15 +52,18 @@ export function PrimaryButton({
 export function GhostButton({
   children,
   onClick,
+  disabled,
   style,
 }: {
   children: ReactNode;
   onClick: () => void;
+  disabled?: boolean;
   style?: CSSProperties;
 }) {
   return (
     <button
       onClick={onClick}
+      disabled={disabled}
       style={{
         minHeight: 44,
         padding: '0 18px',
@@ -65,7 +72,8 @@ export function GhostButton({
         borderRadius: RADIUS_SM,
         ...TYPE.small,
         color: COLOR.ink,
-        cursor: 'pointer',
+        cursor: disabled ? 'default' : 'pointer',
+        opacity: disabled ? 0.45 : 1,
         display: 'inline-flex',
         alignItems: 'center',
         gap: 8,

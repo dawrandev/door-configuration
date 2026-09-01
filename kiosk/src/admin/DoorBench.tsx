@@ -1,8 +1,11 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { COLOR, FONT, RADIUS, RADIUS_SM, TOUCH_MIN, TYPE } from '../design/tokens';
+import { COLOR, RADIUS, RADIUS_SM, TOUCH_MIN, TYPE } from '../design/tokens';
 import { rectify, stripHandle, neutraliseWhite, type Pt } from './rectify';
 import { saveLeaf, mergeColors, saveColor, type AdminLeaf, type AdminColor } from './adminStore';
 import { COLORS as BASE_COLORS, type DoorColor } from '../catalog/colors';
+import {
+  Panel, PanelBody, PanelFooter, Label, Section, inp, AdminPrimaryButton, AdminGhostButton, Seg, Pad, Handle, useToast,
+} from './adminKit';
 
 /** Downscale an image to a compact JPEG data URL for storage/re-editing. */
 function compactSource(el: HTMLImageElement, maxW = 1300): string {
@@ -36,7 +39,9 @@ export function DoorBench({ onDone, edit }: { onDone: () => void; edit?: AdminLe
   const [corners, setCorners] = useState<Pt[]>([]);
   const [zoom, setZoom] = useState(1);
   const [result, setResult] = useState<string | null>(null);
+  const [checking, setChecking] = useState(false);
   const [busy, setBusy] = useState(false);
+  const toast = useToast();
 
   // The colour registry — built-ins plus anything a bench has ever added,
   // same merge pattern as leaves/rooms. Kept in local state, not the global
@@ -152,7 +157,7 @@ export function DoorBench({ onDone, edit }: { onDone: () => void; edit?: AdminLe
    * the rectify runs continuously at ~300px — cheap enough to redo on every
    * drag — and the fixed result appears beside the photo as the corners move,
    * turning "mark, render, discover it is wrong, start over" into "drag until it
-   * looks right". The full-resolution pass stays behind "Tekislab ko‘rish".
+   * looks right".
    */
   const [live, setLive] = useState<string | null>(null);
   useEffect(() => {
@@ -168,14 +173,16 @@ export function DoorBench({ onDone, edit }: { onDone: () => void; edit?: AdminLe
     return () => window.clearTimeout(t);
   }, [img, corners, white, handleSide]);
 
-  const process = async () => {
+  /** An optional, full-resolution "is this really right?" look, shown inline
+   *  below the live preview — publish() itself always renders at full
+   *  quality regardless, so this is reassurance, not a required step. */
+  const check = async () => {
     if (!img || corners.length !== 4) return;
-    setBusy(true);
+    setChecking(true);
     await new Promise((r) => setTimeout(r, 20));
     const canvas = rectify(img, corners as [Pt, Pt, Pt, Pt]);
     stripHandle(canvas, handleSide);
     if (white) neutraliseWhite(canvas);
-    // compact JPEG: a full PNG data URL blows the localStorage budget
     const scale = Math.min(1, 820 / canvas.width);
     const small = document.createElement('canvas');
     small.width = Math.round(canvas.width * scale);
@@ -184,16 +191,18 @@ export function DoorBench({ onDone, edit }: { onDone: () => void; edit?: AdminLe
     sc.imageSmoothingQuality = 'high';
     sc.drawImage(canvas, 0, 0, small.width, small.height);
     setResult(small.toDataURL('image/jpeg', 0.82));
-    setBusy(false);
+    setChecking(false);
   };
 
   const publish = () => {
     if (!img || corners.length !== 4) return;
-    // Render the door at full quality now — publishing no longer waits for a
-    // separate "check" step; the live preview already told the user it is right.
+    setBusy(true);
+    // Render the door at full quality now — publishing never depends on
+    // the optional check() above having been run.
     const canvas = rectify(img, corners as [Pt, Pt, Pt, Pt]);
     stripHandle(canvas, handleSide);
     if (white) neutraliseWhite(canvas);
+    // compact JPEG: a full PNG data URL blows the localStorage budget
     const scale = Math.min(1, 820 / canvas.width);
     const small = document.createElement('canvas');
     small.width = Math.round(canvas.width * scale);
@@ -223,6 +232,8 @@ export function DoorBench({ onDone, edit }: { onDone: () => void; edit?: AdminLe
       // AFTER today, exactly like it would have before this feature existed.
       colorIds: selected.size === colors.length ? undefined : [...selected],
     });
+    setBusy(false);
+    toast('Saqlandi ✓');
     onDone();
   };
 
@@ -230,8 +241,8 @@ export function DoorBench({ onDone, edit }: { onDone: () => void; edit?: AdminLe
   const dispH = img ? img.height * zoom : 0;
 
   return (
-    <div style={{ display: 'flex', height: '100%', width: '100%' }}>
-      <div style={{ flex: 1, minWidth: 0, overflow: 'auto', padding: 20, display: 'flex', alignItems: 'flex-start', justifyContent: 'center', background: COLOR.studio }}>
+    <div style={{ display: 'flex', height: '100%', width: '100%', minHeight: 0 }}>
+      <div className="scr" style={{ flex: 1, minWidth: 0, overflow: 'auto', padding: 20, display: 'flex', alignItems: 'flex-start', justifyContent: 'center', background: COLOR.studio }}>
         {!img && (
           <label style={{ margin: 'auto', textAlign: 'center', cursor: 'pointer', border: `1.5px dashed ${COLOR.lineStrong}`, borderRadius: RADIUS, padding: '64px 80px', background: '#fff' }}>
             <div style={{ ...TYPE.h2, color: COLOR.ink, marginBottom: 8 }}>Eshik rasmini yuklang</div>
@@ -253,159 +264,95 @@ export function DoorBench({ onDone, edit }: { onDone: () => void; edit?: AdminLe
       </div>
 
       <Panel>
-        <button onClick={onDone} style={linkBtn}>← Ro‘yxatga qaytish</button>
-        <div style={{ ...TYPE.h2, color: COLOR.ink, margin: '10px 0 4px' }}>{edit ? 'Eshikni tahrirlash' : 'Yangi eshik'}</div>
-        <div style={{ ...TYPE.small, color: COLOR.inkSoft, marginBottom: 18 }}>Eshik <b>yuzasining</b> 4 burchagini belgilang — ramkani emas, tavaqani.</div>
-        {img && (
-          <>
-            {/* live result — updates as the corners move, so a bad mark is seen at once */}
-            <Label>Jonli ko‘rinish</Label>
-            <div style={{ display: 'flex', justifyContent: 'center', background: COLOR.paper, border: `1px solid ${COLOR.line}`, borderRadius: RADIUS, padding: 10, minHeight: 150 }}>
-              {live ? <img src={live} alt="" style={{ maxHeight: 240, borderRadius: RADIUS_SM }} /> : <span style={{ color: COLOR.inkSoft, fontSize: 12, alignSelf: 'center' }}>burchaklarni sozlang…</span>}
-            </div>
-
-            <Label>Nomi</Label>
-            <input value={name} onChange={(e) => setName(e.target.value)} style={inp} placeholder="Masalan: Feruza klassik" />
-            <Label>Rangi</Label>
-            <Seg opts={[{ id: 't', label: 'Oq bo‘yoq' }, { id: 'f', label: 'Rangli' }]} value={white ? 't' : 'f'} onPick={(v) => setWhite(v === 't')} />
-
-            <Label>Ranglar — mijoz shu eshik uchun tanlay oladi</Label>
-            <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
-              {colors.map((c) => {
-                const on = selected.has(c.id);
-                return (
-                  <button
-                    key={c.id}
-                    onClick={() => toggleColor(c.id)}
-                    style={{
-                      display: 'flex', alignItems: 'center', gap: 7, minHeight: TOUCH_MIN, padding: '6px 14px 6px 8px', borderRadius: 999, fontFamily: 'inherit',
-                      border: `1px solid ${on ? COLOR.brass : COLOR.lineStrong}`, background: on ? 'rgba(143,113,69,.1)' : 'transparent',
-                      color: COLOR.ink, fontSize: 13, cursor: 'pointer',
-                    }}
-                  >
-                    <span style={{ width: 18, height: 18, borderRadius: 999, background: c.hex, boxShadow: `inset 0 0 0 1px ${COLOR.lineStrong}`, flex: '0 0 auto' }} />
-                    {c.name.uz}
-                  </button>
-                );
-              })}
-            </div>
-            <div style={{ display: 'flex', gap: 6, alignItems: 'center', marginTop: 10 }}>
-              <input
-                type="color"
-                value={/^#[0-9a-fA-F]{6}$/.test(newColorHex) ? newColorHex : '#8F7145'}
-                onChange={(e) => setNewColorHex(e.target.value)}
-                style={{ width: TOUCH_MIN, height: TOUCH_MIN, padding: 0, border: `1px solid ${COLOR.lineStrong}`, borderRadius: RADIUS_SM, background: 'none', cursor: 'pointer', flex: '0 0 auto' }}
-              />
-              <input value={newColorHex} onChange={(e) => setNewColorHex(e.target.value)} style={{ ...inp, margin: 0, width: 90 }} placeholder="#8F7145" />
-              <input value={newColorName} onChange={(e) => setNewColorName(e.target.value)} style={{ ...inp, margin: 0, flex: 1 }} placeholder="Rang nomi" />
-              <button onClick={addColor} style={{ ...ghostBtn, width: 'auto', margin: 0, minHeight: TOUCH_MIN, padding: '0 14px', fontSize: 13 }}>+ Qo‘shish</button>
-            </div>
-
-            <Label>Kattalashtirish — {(zoom * 100).toFixed(0)}%</Label>
-            <input type="range" min={0.08} max={2} step={0.02} value={zoom} onChange={(e) => setZoom(+e.target.value)} style={{ width: '100%' }} />
-            <Label>Burchakni aniqlash</Label>
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
-              {corners.map((_, i) => (
-                <div key={i} style={{ background: COLOR.paper, border: `1px solid ${COLOR.line}`, borderRadius: RADIUS, padding: 8 }}>
-                  <div style={{ fontSize: 11, color: COLOR.inkSoft, marginBottom: 5 }}>{LABELS[i]}</div>
-                  <Pad onNudge={(dx, dy) => nudge(i, dx, dy)} />
-                </div>
-              ))}
-            </div>
-            <button onClick={process} disabled={busy} style={ghostBtn}>
-              {busy ? 'Ishlanmoqda…' : 'Yakuniy sifatda tekshirish'}
-            </button>
-            <button onClick={publish} disabled={!live} style={primaryBtn}>Katalogga qo‘shish ✓</button>
-            {result && (
-              <div style={{ marginTop: 14 }}>
-                <div style={{ fontSize: 11, color: COLOR.inkSoft, marginBottom: 6 }}>Yakuniy sifat:</div>
-                <div style={{ display: 'flex', justifyContent: 'center', background: COLOR.paper, border: `1px solid ${COLOR.line}`, borderRadius: RADIUS, padding: 10 }}>
-                  <img src={result} alt="" style={{ maxHeight: 300, borderRadius: RADIUS_SM }} />
-                </div>
+        <PanelBody>
+          <div style={{ ...TYPE.h2, color: COLOR.ink, margin: '0 0 4px' }}>{edit ? 'Eshikni tahrirlash' : 'Yangi eshik'}</div>
+          <div style={{ ...TYPE.small, color: COLOR.inkSoft }}>Eshik <b>yuzasining</b> 4 burchagini belgilang — ramkani emas, tavaqani.</div>
+          {img && (
+            <>
+              {/* live result — updates as the corners move, so a bad mark is seen at once */}
+              <Label>Jonli ko‘rinish</Label>
+              <div style={{ display: 'flex', justifyContent: 'center', background: COLOR.paper, border: `1px solid ${COLOR.line}`, borderRadius: RADIUS, padding: 10, minHeight: 150 }}>
+                {live ? <img src={live} alt="" style={{ maxHeight: 240, borderRadius: RADIUS_SM }} /> : <span style={{ color: COLOR.inkSoft, fontSize: 12, alignSelf: 'center' }}>burchaklarni sozlang…</span>}
               </div>
-            )}
-          </>
+
+              <Section title="Nomlanish">
+                <Label>Nomi</Label>
+                <input value={name} onChange={(e) => setName(e.target.value)} style={inp} placeholder="Masalan: Feruza klassik" />
+                <Label>Rangi</Label>
+                <Seg opts={[{ id: 't', label: 'Oq bo‘yoq' }, { id: 'f', label: 'Rangli' }]} value={white ? 't' : 'f'} onPick={(v) => setWhite(v === 't')} />
+              </Section>
+
+              <Section title="Ranglar — mijoz shu eshik uchun tanlay oladi">
+                <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
+                  {colors.map((c) => {
+                    const on = selected.has(c.id);
+                    return (
+                      <button
+                        key={c.id}
+                        onClick={() => toggleColor(c.id)}
+                        style={{
+                          display: 'flex', alignItems: 'center', gap: 7, minHeight: TOUCH_MIN, padding: '6px 14px 6px 8px', borderRadius: 999, fontFamily: 'inherit',
+                          border: `1px solid ${on ? COLOR.brass : COLOR.lineStrong}`, background: on ? 'rgba(143,113,69,.1)' : '#fff',
+                          color: COLOR.ink, fontSize: 13, cursor: 'pointer',
+                        }}
+                      >
+                        <span style={{ width: 18, height: 18, borderRadius: 999, background: c.hex, boxShadow: `inset 0 0 0 1px ${COLOR.lineStrong}`, flex: '0 0 auto' }} />
+                        {c.name.uz}
+                      </button>
+                    );
+                  })}
+                </div>
+                <div style={{ display: 'flex', gap: 6, alignItems: 'center', marginTop: 10 }}>
+                  <input
+                    type="color"
+                    value={/^#[0-9a-fA-F]{6}$/.test(newColorHex) ? newColorHex : '#8F7145'}
+                    onChange={(e) => setNewColorHex(e.target.value)}
+                    style={{ width: TOUCH_MIN, height: TOUCH_MIN, padding: 0, border: `1px solid ${COLOR.lineStrong}`, borderRadius: RADIUS_SM, background: 'none', cursor: 'pointer', flex: '0 0 auto' }}
+                  />
+                  <input value={newColorHex} onChange={(e) => setNewColorHex(e.target.value)} style={{ ...inp, margin: 0, width: 90 }} placeholder="#8F7145" />
+                  <input value={newColorName} onChange={(e) => setNewColorName(e.target.value)} style={{ ...inp, margin: 0, flex: 1 }} placeholder="Rang nomi" />
+                  <AdminGhostButton onClick={addColor} style={{ width: 'auto', minHeight: TOUCH_MIN, padding: '0 14px', fontSize: 13 }}>+ Qo‘shish</AdminGhostButton>
+                </div>
+              </Section>
+
+              <Section title="Joylashuv">
+                <Label>Kattalashtirish — {(zoom * 100).toFixed(0)}%</Label>
+                <input type="range" min={0.08} max={2} step={0.02} value={zoom} onChange={(e) => setZoom(+e.target.value)} style={{ width: '100%' }} />
+                <Label>Burchakni aniqlash</Label>
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
+                  {corners.map((_, i) => (
+                    <div key={i} style={{ background: '#fff', border: `1px solid ${COLOR.line}`, borderRadius: RADIUS, padding: 8 }}>
+                      <div style={{ fontSize: 11, color: COLOR.inkSoft, marginBottom: 5 }}>{LABELS[i]}</div>
+                      <Pad onNudge={(dx, dy) => nudge(i, dx, dy)} />
+                    </div>
+                  ))}
+                </div>
+              </Section>
+
+              {result && (
+                <div style={{ marginTop: 16 }}>
+                  <div style={{ fontSize: 11, color: COLOR.inkSoft, marginBottom: 6 }}>Yakuniy sifat:</div>
+                  <div style={{ display: 'flex', justifyContent: 'center', background: COLOR.paper, border: `1px solid ${COLOR.line}`, borderRadius: RADIUS, padding: 10 }}>
+                    <img src={result} alt="" style={{ maxHeight: 300, borderRadius: RADIUS_SM }} />
+                  </div>
+                </div>
+              )}
+            </>
+          )}
+        </PanelBody>
+        {img && (
+          <PanelFooter>
+            <div style={{ display: 'flex', gap: 8 }}>
+              <AdminGhostButton onClick={check} disabled={checking} style={{ flex: 1 }}>
+                {checking ? 'Ishlanmoqda…' : 'Yakuniy sifatda tekshirish'}
+              </AdminGhostButton>
+              <AdminPrimaryButton onClick={publish} disabled={!live || busy} style={{ flex: 1 }}>
+                {busy ? 'Saqlanmoqda…' : 'Qo‘shish ✓'}
+              </AdminPrimaryButton>
+            </div>
+          </PanelFooter>
         )}
       </Panel>
-    </div>
-  );
-}
-
-// ---- shared bits, also used by RoomBench ----
-/**
- * A drag corner. The grabbable area is TOUCH_MIN (44px, design/tokens.ts) even
- * though the visible dot stays small — a hand marking four corners on a photo
- * needs to land on it, not near it.
- */
-export function Handle({ x, y, color = COLOR.brass, onPointerDown, onDoubleClick }: { x: number; y: number; color?: string; onPointerDown: (e: React.PointerEvent) => void; onDoubleClick?: () => void }) {
-  return (
-    <div
-      onPointerDown={onPointerDown}
-      onDoubleClick={onDoubleClick}
-      style={{ position: 'absolute', left: x - TOUCH_MIN / 2, top: y - TOUCH_MIN / 2, width: TOUCH_MIN, height: TOUCH_MIN, display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'grab', touchAction: 'none' }}
-    >
-      <div style={{ width: 20, height: 20, borderRadius: 999, background: color, border: '2px solid #fff', boxShadow: '0 1px 6px rgba(35,32,27,.35)', pointerEvents: 'none' }} />
-    </div>
-  );
-}
-/**
- * Live fraction/pixel readout for whichever box is being dragged — the one
- * piece of feedback hand-measuring against a photo actually needs and the
- * corner-drag UI otherwise gives none of.
- */
-export function DimHUD({ rect, w, h }: { rect: { x: number; y: number; w: number; h: number }; w: number; h: number }) {
-  const px = (f: number, dim: number) => Math.round(f * dim);
-  return (
-    <div style={{ position: 'absolute', top: 8, left: 8, background: 'rgba(255,255,255,.92)', border: `1px solid ${COLOR.line}`, color: COLOR.ink, padding: '5px 9px', borderRadius: RADIUS_SM, ...TYPE.data, fontSize: 11, pointerEvents: 'none', whiteSpace: 'nowrap' }}>
-      x {rect.x.toFixed(3)} ({px(rect.x, w)}px) · y {rect.y.toFixed(3)} ({px(rect.y, h)}px) · w {rect.w.toFixed(3)} ({px(rect.w, w)}px) · h {rect.h.toFixed(3)} ({px(rect.h, h)}px)
-    </div>
-  );
-}
-export const inp: React.CSSProperties = { width: '100%', minHeight: TOUCH_MIN, marginTop: 6, padding: '9px 10px', borderRadius: RADIUS_SM, background: '#fff', color: COLOR.ink, border: `1px solid ${COLOR.lineStrong}`, fontSize: 13, fontFamily: 'inherit', boxSizing: 'border-box' };
-/** Primary commit action — same ink-on-limestone button the showroom itself uses. */
-export const primaryBtn: React.CSSProperties = { width: '100%', marginTop: 10, minHeight: 46, padding: '0 10px', borderRadius: RADIUS, border: 'none', background: COLOR.ink, color: COLOR.onInk, cursor: 'pointer', fontWeight: 600, fontSize: 14, fontFamily: 'inherit' };
-/** Secondary action — outline only, never competes with the one commit button. */
-export const ghostBtn: React.CSSProperties = { width: '100%', marginTop: 18, minHeight: 46, padding: '0 10px', borderRadius: RADIUS, border: `1px solid ${COLOR.lineStrong}`, background: 'transparent', color: COLOR.ink, cursor: 'pointer', fontWeight: 600, fontSize: 14, fontFamily: 'inherit' };
-/** A text-scaled link, but a real touch target underneath — a bare 13px
- *  line of text is what a mouse cursor forgives and a finger does not. */
-export const linkBtn: React.CSSProperties = { display: 'inline-flex', alignItems: 'center', minHeight: TOUCH_MIN, background: 'none', border: 'none', color: COLOR.inkSoft, cursor: 'pointer', fontSize: 13, padding: '0 4px', margin: '0 -4px', fontFamily: 'inherit' };
-export function Panel({ children }: { children: React.ReactNode }) {
-  return <div style={{ width: 380, flex: '0 0 380px', height: '100%', overflowY: 'auto', padding: 24, background: '#fff', borderLeft: `1px solid ${COLOR.line}`, fontFamily: FONT.sans }}>{children}</div>;
-}
-export function Label({ children }: { children: React.ReactNode }) {
-  return <div style={{ ...TYPE.label, fontSize: 11, color: COLOR.inkSoft, marginTop: 18, marginBottom: 6 }}>{children}</div>;
-}
-export function Seg({ opts, value, onPick }: { opts: { id: string; label: string }[]; value: string; onPick: (v: string) => void }) {
-  return (
-    <div style={{ display: 'flex', gap: 8 }}>
-      {opts.map((o) => {
-        const on = o.id === value;
-        return (
-          <button
-            key={o.id}
-            onClick={() => onPick(o.id)}
-            style={{
-              flex: 1, minHeight: TOUCH_MIN, padding: '9px 6px', borderRadius: RADIUS_SM, cursor: 'pointer', fontSize: 13, fontFamily: 'inherit',
-              background: on ? 'rgba(143,113,69,.1)' : 'transparent', color: COLOR.ink,
-              border: `1px solid ${on ? COLOR.brass : COLOR.lineStrong}`, fontWeight: on ? 600 : 400,
-            }}
-          >
-            {o.label}
-          </button>
-        );
-      })}
-    </div>
-  );
-}
-function Pad({ onNudge }: { onNudge: (dx: number, dy: number) => void }) {
-  const b = (t: string, dx: number, dy: number) => (
-    <button onClick={() => onNudge(dx, dy)} style={{ background: '#fff', border: `1px solid ${COLOR.lineStrong}`, borderRadius: RADIUS_SM, color: COLOR.ink, cursor: 'pointer', fontSize: 13, minHeight: 40, padding: 0 }}>{t}</button>
-  );
-  return (
-    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3,1fr)', gap: 3 }}>
-      <span />{b('▲', 0, -2)}<span />
-      {b('◀', -2, 0)}<span />{b('▶', 2, 0)}
-      <span />{b('▼', 0, 2)}<span />
     </div>
   );
 }
