@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import type { Leaf, Room } from '../catalog/types';
+import type { Leaf, Room, TrimPiece } from '../catalog/types';
 import type { Tint } from '../catalog/colors';
 
 /**
@@ -268,20 +268,29 @@ function addLoop(path: Path2D, pts: { x: number; y: number }[], w: number, h: nu
   path.closePath();
 }
 
-export function recolorTrim(room: Room, tint: Tint): Promise<string | null> {
-  const boxes = room.trimBoxes;
-  if (!boxes || !boxes.length) return Promise.resolve(null);
-  // The box list is part of the key, not just the room id: a published room's
-  // boxes never change at runtime, but the admin bench's live preview edits
-  // them on every drag, and a stale cache hit there would show the wrong shape.
+/**
+ * Shared by a room's own trim and a door's own — see `recolorTrim` and
+ * `recolorLeafTrim` below, which are just this fed a room's parts or a
+ * leaf's. `punch`, when given, is erased back out of the union after
+ * painting — a room's doorway, which must never take paint regardless of
+ * which trim box happens to overlap it. A door's own trim has nothing to
+ * punch: it renders BEHIND the door's own leaf image, which already covers
+ * whatever trim falls under it.
+ */
+function recolorTrimFrom(
+  id: string,
+  source: string,
+  boxes: TrimPiece[],
+  tint: Tint,
+  punch?: { x: number; y: number; w: number; h: number }
+): Promise<string | null> {
+  if (!boxes.length) return Promise.resolve(null);
+  // The box list is part of the key, not just the id: published trim never
+  // changes at runtime, but a bench's live preview edits it on every drag,
+  // and a stale cache hit there would show the wrong shape.
   const boxKey = boxes.map((b) => `${b.x},${b.y},${b.w},${b.h},${b.points?.map((p) => `${p.x},${p.y}`).join(',') ?? ''},${b.holePoints?.map((p) => `${p.x},${p.y}`).join(',') ?? ''}`).join(';');
-  // Keyed on the length of whatever is actually loaded below (thumb when
-  // there is one) — keying on room.image while loading room.thumb let a
-  // republish that only changed the thumb serve a stale cached render under
-  // a key that still looked fresh.
-  const roomSrc = room.thumb ?? room.image;
-  return cached(`trim|${room.id}|${tint.join(',')}|${roomSrc.length}|${boxKey}`, async () => {
-    const img = await loadImage(roomSrc);
+  return cached(`trim|${id}|${tint.join(',')}|${source.length}|${boxKey}`, async () => {
+    const img = await loadImage(source);
     const { canvas, w, h } = drawAt(img, CASING_W);
 
     const ux0 = Math.min(...boxes.map((b) => b.x));
@@ -328,15 +337,37 @@ export function recolorTrim(room: Room, tint: Tint): Promise<string | null> {
     octx.drawImage(tinted, cx, cy);
     octx.restore();
 
-    // Punch the doorway back out. A separate erase, not folded into the union
-    // above, so it comes out regardless of which box(es) happen to overlap it.
-    octx.save();
-    octx.globalCompositeOperation = 'destination-out';
-    octx.fillRect(Math.round(room.open.x * w), Math.round(room.open.y * h), Math.round(room.open.w * w), Math.round(room.open.h * h));
-    octx.restore();
+    if (punch) {
+      // A separate erase, not folded into the union above, so it comes out
+      // regardless of which box(es) happen to overlap it.
+      octx.save();
+      octx.globalCompositeOperation = 'destination-out';
+      octx.fillRect(Math.round(punch.x * w), Math.round(punch.y * h), Math.round(punch.w * w), Math.round(punch.h * h));
+      octx.restore();
+    }
 
     return out.toDataURL('image/png');
   });
+}
+
+export function recolorTrim(room: Room, tint: Tint): Promise<string | null> {
+  const boxes = room.trimBoxes;
+  if (!boxes || !boxes.length) return Promise.resolve(null);
+  // Keyed on the length of whatever is actually loaded below (thumb when
+  // there is one) — keying on room.image while loading room.thumb let a
+  // republish that only changed the thumb serve a stale cached render under
+  // a key that still looked fresh.
+  return recolorTrimFrom(room.id, room.thumb ?? room.image, boxes, tint, room.open);
+}
+
+/**
+ * A door's OWN nalichnik/korona, traced on its own photograph — see
+ * `Leaf.trimBoxes`. Null for every door before this feature (no
+ * `trimSource`/`trimBoxes`), same as `recolorTrim` for a room with none.
+ */
+export function recolorLeafTrim(leaf: Leaf, tint: Tint): Promise<string | null> {
+  if (!leaf.trimSource || !leaf.trimBoxes || !leaf.trimBoxes.length) return Promise.resolve(null);
+  return recolorTrimFrom(leaf.id, leaf.trimSource, leaf.trimBoxes, tint);
 }
 
 /**
