@@ -229,3 +229,54 @@ export function Masthead({ onDone }: { onDone?: () => void }) {
   );
 }
 const clientLinkBtn: React.CSSProperties = { minHeight: TOUCH_MIN, padding: '0 16px', display: 'flex', alignItems: 'center', borderRadius: RADIUS, border: `1px solid ${COLOR.lineStrong}`, color: COLOR.ink, textDecoration: 'none', fontSize: 13, fontFamily: 'inherit' };
+
+/** One "+ role" pill — a trim role not yet in use, offered as a one-tap way
+ *  to add it. Shared between RoomBench (a room's own architrave) and
+ *  DoorBench (a door's own, once traced on its own photo) — the same chip
+ *  either way, just fed a different role list and add handler. */
+export function RoleChip({ label, color, disabled, onClick }: { label: string; color: string; disabled?: boolean; onClick: () => void }) {
+  return (
+    <button
+      onClick={onClick}
+      disabled={disabled}
+      style={{
+        display: 'flex', alignItems: 'center', gap: 7, minHeight: TOUCH_MIN, padding: '7px 14px', borderRadius: 999, fontFamily: 'inherit',
+        border: `1px solid ${disabled ? COLOR.line : color}`, background: 'transparent',
+        color: disabled ? COLOR.inkSoft : COLOR.ink, fontSize: 13, cursor: disabled ? 'default' : 'pointer', opacity: disabled ? 0.5 : 1,
+      }}
+    >
+      <span style={{ width: 8, height: 8, borderRadius: 999, background: color }} />
+      + {label}
+    </button>
+  );
+}
+
+/** The nudge pad for whatever's currently selected — move it, and (unless
+ *  `sizeless`, for a free-outline trim piece with no single "size" of its
+ *  own) resize it, one small step per tap. */
+export function MoveResize({ onMove, onSize, sizeless }: { onMove: (dx: number, dy: number) => void; onSize: (dx: number, dy: number) => void; sizeless?: boolean }) {
+  const cell = (t: string, fn: () => void) => (
+    <button onClick={fn} style={{ background: '#fff', border: `1px solid ${COLOR.lineStrong}`, borderRadius: RADIUS_SM, color: COLOR.ink, cursor: 'pointer', fontSize: 13, minHeight: TOUCH_MIN, padding: 0 }}>{t}</button>
+  );
+  return (
+    <div style={{ display: 'flex', gap: 10 }}>
+      <div style={{ flex: 1 }}>
+        <div style={{ fontSize: 10, color: COLOR.inkSoft, marginBottom: 4 }}>O‘rni</div>
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3,1fr)', gap: 3 }}>
+          <span />{cell('▲', () => onMove(0, -8))}<span />
+          {cell('◀', () => onMove(-8, 0))}<span />{cell('▶', () => onMove(8, 0))}
+          <span />{cell('▼', () => onMove(0, 8))}<span />
+        </div>
+      </div>
+      {!sizeless && (
+        <div style={{ flex: 1 }}>
+          <div style={{ fontSize: 10, color: COLOR.inkSoft, marginBottom: 4 }}>O‘lchami</div>
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 3 }}>
+            {cell('En −', () => onSize(-8, 0))}{cell('En +', () => onSize(8, 0))}
+            {cell('Bo‘y −', () => onSize(0, -8))}{cell('Bo‘y +', () => onSize(0, 8))}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}

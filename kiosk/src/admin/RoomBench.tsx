@@ -2,10 +2,11 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { COLOR, RADIUS, RADIUS_SM, TOUCH_MIN, TYPE } from '../design/tokens';
 import { processRoom, type Rect } from './roomProcess';
 import { saveRoom, type AdminRoom } from './adminStore';
-import { Panel, PanelBody, PanelFooter, Label, Section, inp, AdminPrimaryButton, Handle, DimHUD, DANGER, useToast, ROLE_ORDER, ROLE_META } from './adminKit';
+import { Panel, PanelBody, PanelFooter, Label, Section, inp, AdminPrimaryButton, Handle, DimHUD, DANGER, useToast, ROLE_ORDER, ROLE_META, RoleChip, MoveResize } from './adminKit';
+import { bboxOfPoints, seedPoints, defaultRectFor, nearestLoop, toStoredTrim, toTrimState, type Point, type TrimPieceState } from './trimGeometry';
 import { recolorTrim } from '../render/recolor';
 import type { Tint } from '../catalog/colors';
-import type { Room, TrimRole } from '../catalog/types';
+import type { Room, TrimPiece, TrimRole } from '../catalog/types';
 
 function compactSource(el: HTMLImageElement, maxW = 1300): string {
   const scale = Math.min(1, maxW / el.width);
@@ -20,79 +21,6 @@ function compactSource(el: HTMLImageElement, maxW = 1300): string {
  *  default, so a missing or misplaced box is glaring rather than a subtle
  *  shade of white-on-white. */
 const PREVIEW_TINT: Tint = [0.22, 0.32, 0.62];
-
-interface Point { x: number; y: number }
-
-interface TrimBox {
-  id: string;
-  role: TrimRole;
-  label?: string;
-  /** The piece's bounding box — kept in sync as the bbox of `points`.
-   *  recolorTrim's shared-crop and the HUD both read this regardless of the
-   *  actual outline. */
-  rect: Rect;
-  /**
-   * The piece's real outline, wound clockwise from top-left, image
-   * fractions. Always at least 4 points and always independently draggable
-   * — a moulded crown is rarely a clean box, so trim was never really a
-   * rectangle to begin with; it only looked like one because it started as
-   * 4 points at a rectangle's corners. Dragging one point moves ONLY that
-   * point.
-   */
-  points: Point[];
-  /**
-   * An optional, separately hand-traced inner edge — a cutout, for a piece
-   * shaped like a ring (the shaft, almost always). Undefined means "rely on
-   * the doorway rectangle instead", which is only ever a guess at where the
-   * casing's own inner lip sits in the photograph. Present, it is edited
-   * with the exact same independent-point tool as the outer edge.
-   */
-  holePoints?: Point[];
-}
-
-/** The smallest rect containing every point — `points`' bounding box. */
-function bboxOfPoints(points: Point[]): Rect {
-  const xs = points.map((p) => p.x);
-  const ys = points.map((p) => p.y);
-  const x0 = Math.min(...xs), y0 = Math.min(...ys);
-  return { x: x0, y: y0, w: Math.max(...xs) - x0, h: Math.max(...ys) - y0 };
-}
-
-/** A rect's four corners as a closed polygon, tl→tr→br→bl — the winding a
- *  simple (non-self-crossing) outline needs. Seeds a fresh 'poly' shape from
- *  whatever rect the piece already had, so switching never starts blank. */
-function seedPoints(rect: Rect): Point[] {
-  return [
-    { x: rect.x, y: rect.y },
-    { x: rect.x + rect.w, y: rect.y },
-    { x: rect.x + rect.w, y: rect.y + rect.h },
-    { x: rect.x, y: rect.y + rect.h },
-  ];
-}
-
-/** Perpendicular distance from p to the segment a–b (clamped to the segment). */
-function distToSegment(p: Point, a: Point, b: Point): number {
-  const dx = b.x - a.x, dy = b.y - a.y;
-  const len2 = dx * dx + dy * dy;
-  const t = len2 === 0 ? 0 : Math.max(0, Math.min(1, ((p.x - a.x) * dx + (p.y - a.y) * dy) / len2));
-  return Math.hypot(p.x - (a.x + t * dx), p.y - (a.y + t * dy));
-}
-
-/**
- * Where a new point belongs: on the edge it lands closest to, so a click
- * anywhere near the outline inserts right there rather than tacking a point
- * onto the end and scrambling the shape. With fewer than two points yet,
- * there is no edge to measure — just append.
- */
-function insertIndexForPoint(points: Point[], p: Point): number {
-  if (points.length < 2) return points.length;
-  let bestI = points.length, bestD = Infinity;
-  for (let i = 0; i < points.length; i++) {
-    const d = distToSegment(p, points[i], points[(i + 1) % points.length]);
-    if (d < bestD) { bestD = d; bestI = i + 1; }
-  }
-  return bestI;
-}
 
 type Corner = 'tl' | 'tr' | 'bl' | 'br';
 
@@ -147,50 +75,6 @@ function corners(rect: Rect): { corner: Corner; x: number; y: number }[] {
   ];
 }
 
-/** A reasonable starting rectangle for a role, so a chip click drops a box
- *  roughly where it belongs instead of a blank square to drag from scratch —
- *  the same shortcut hand-measuring these against real photos leaned on. */
-function defaultRectFor(role: TrimRole, open: Rect, trim: TrimBox[]): Rect {
-  const shaft = trim.find((t) => t.role === 'shaft')?.rect ?? open;
-  switch (role) {
-    case 'shaft':
-      return { x: Math.max(0, open.x - 0.03), y: Math.max(0, open.y - 0.03), w: Math.min(1 - open.x + 0.03, open.w + 0.06), h: Math.min(1 - open.y + 0.03, open.h + 0.035) };
-    case 'crown':
-      return { x: shaft.x, y: Math.max(0, shaft.y - 0.05), w: shaft.w, h: 0.045 };
-    case 'footL':
-      return { x: Math.max(0, shaft.x - 0.015), y: Math.min(0.94, shaft.y + shaft.h - 0.05), w: 0.06, h: 0.05 };
-    case 'footR':
-      return { x: Math.min(0.94 - 0.06, shaft.x + shaft.w - 0.045), y: Math.min(0.94, shaft.y + shaft.h - 0.05), w: 0.06, h: 0.05 };
-    case 'extra':
-      return { x: 0.4, y: 0.4, w: 0.15, h: 0.1 };
-  }
-}
-
-type StoredTrim = Rect & { points?: Point[]; holePoints?: Point[]; role?: TrimRole; label?: string };
-
-/** What a piece publishes: its bbox, its real outline, its inner cut when it
- *  has one, and — going forward — its role right on the box itself, rather
- *  than in a second array a caller has to keep zipped to this one. */
-function toStoredBox(t: TrimBox): StoredTrim {
-  return { ...t.rect, points: t.points, holePoints: t.holePoints, role: t.role, label: t.label };
-}
-
-/** Build a bench TrimBox from whatever a room stored. Older data (saved
- *  before free points existed) has no `points` — seeded from its rect, same
- *  as a brand-new piece, so it opens as 4 draggable corners rather than
- *  erroring. `holePoints` stays undefined unless the room actually has one —
- *  it is never assumed. `role`/`label` default from the box itself; callers
- *  reopening older data override them from wherever that data actually kept
- *  them (see the `edit.trimBoxes` effect below). */
-function toTrimBox(id: string, box: StoredTrim, role: TrimRole = box.role ?? 'extra', label: string | undefined = box.label): TrimBox {
-  const rect = { x: box.x, y: box.y, w: box.w, h: box.h };
-  return {
-    id, role, label, rect,
-    points: box.points && box.points.length >= 3 ? box.points : seedPoints(rect),
-    holePoints: box.holePoints && box.holePoints.length >= 3 ? box.holePoints : undefined,
-  };
-}
-
 /**
  * A guess at which box is which, for a room whose trim pieces carry no role
  * at all yet (neither on the box nor in the older parallel array) — shipped
@@ -198,18 +82,18 @@ function toTrimBox(id: string, box: StoredTrim, role: TrimRole = box.role ?? 'ex
  * Purely a starting label for editing; once republished, every piece has a
  * real role on it and this never runs again for that room.
  */
-function inferRoles(boxes: StoredTrim[]): TrimBox[] {
+function inferRoles(boxes: TrimPiece[]): TrimPieceState[] {
   if (boxes.length === 0) return [];
   const byArea = [...boxes].sort((a, b) => b.w * b.h - a.w * a.h);
   const shaft = byArea[0];
   const rest = boxes.filter((b) => b !== shaft);
   const crown = rest.find((b) => b.y + b.h <= shaft.y + 0.01);
   const feet = rest.filter((b) => b !== crown).sort((a, b) => a.x - b.x);
-  const out: TrimBox[] = [toTrimBox('shaft', shaft, 'shaft')];
-  if (crown) out.push(toTrimBox('crown', crown, 'crown'));
-  if (feet[0]) out.push(toTrimBox('footL', feet[0], 'footL'));
-  if (feet[1]) out.push(toTrimBox('footR', feet[1], 'footR'));
-  feet.slice(2).forEach((box, i) => out.push(toTrimBox(`extra-${i}`, box, 'extra')));
+  const out: TrimPieceState[] = [toTrimState('shaft', shaft, 'shaft')];
+  if (crown) out.push(toTrimState('crown', crown, 'crown'));
+  if (feet[0]) out.push(toTrimState('footL', feet[0], 'footL'));
+  if (feet[1]) out.push(toTrimState('footR', feet[1], 'footR'));
+  feet.slice(2).forEach((box, i) => out.push(toTrimState(`extra-${i}`, box, 'extra')));
   return out;
 }
 
@@ -237,7 +121,7 @@ export function RoomBench({ onDone, edit }: { onDone: () => void; edit?: AdminRo
   const [source, setSource] = useState<string | null>(null);
   const [name, setName] = useState('');
   const [box, setBox] = useState<Rect | null>(null); // fractions
-  const [trim, setTrim] = useState<TrimBox[]>([]);
+  const [trim, setTrim] = useState<TrimPieceState[]>([]);
   const [activeTrimId, setActiveTrimId] = useState<string | null>(null);
   const [showTint, setShowTint] = useState(true);
   const [zoom, setZoom] = useState(1);
@@ -257,9 +141,9 @@ export function RoomBench({ onDone, edit }: { onDone: () => void; edit?: AdminRo
       const boxes = edit.trimBoxes;
       setTrim(
         boxes.every((b) => b.role)
-          ? boxes.map((b, i) => toTrimBox(`${b.role}-${i}`, b))
+          ? boxes.map((b, i) => toTrimState(`${b.role}-${i}`, b))
           : edit.legacyTrimRoles && edit.legacyTrimRoles.length === boxes.length
-            ? edit.legacyTrimRoles.map((r, i) => toTrimBox(`${r.role}-${i}`, boxes[i], r.role, r.label))
+            ? edit.legacyTrimRoles.map((r, i) => toTrimState(`${r.role}-${i}`, boxes[i], r.role, r.label))
             : inferRoles(boxes)
       );
     }
@@ -379,13 +263,7 @@ export function RoomBench({ onDone, edit }: { onDone: () => void; edit?: AdminRo
     if (!active) return;
     const p = toFrac(e.clientX, e.clientY);
     const cx = Math.min(Math.max(0, p.x), 1), cy = Math.min(Math.max(0, p.y), 1);
-    const outerIdx = insertIndexForPoint(active.points, { x: cx, y: cy });
-    const outerDist = distToSegment({ x: cx, y: cy }, active.points[(outerIdx - 1 + active.points.length) % active.points.length], active.points[outerIdx % active.points.length]);
-    const hole = active.holePoints;
-    const holeIdx = hole ? insertIndexForPoint(hole, { x: cx, y: cy }) : -1;
-    const holeDist = hole ? distToSegment({ x: cx, y: cy }, hole[(holeIdx - 1 + hole.length) % hole.length], hole[holeIdx % hole.length]) : Infinity;
-    const loop: 'points' | 'holePoints' = hole && holeDist < outerDist ? 'holePoints' : 'points';
-    const idx = loop === 'holePoints' ? holeIdx : outerIdx;
+    const { loop, index: idx } = nearestLoop(active, { x: cx, y: cy });
     setTrim((ts) => ts.map((t) => {
       if (t.id !== active.id) return t;
       const source = t[loop] ?? [];
@@ -408,7 +286,7 @@ export function RoomBench({ onDone, edit }: { onDone: () => void; edit?: AdminRo
       image: src, thumb: src,
       aspect: img.width / img.height,
       open: box,
-      trimBoxes: trim.map(toStoredBox),
+      trimBoxes: trim.map(toStoredTrim),
       light: [1, 1, 1],
     };
     let live = true;
@@ -457,10 +335,10 @@ export function RoomBench({ onDone, edit }: { onDone: () => void; edit?: AdminRo
       thumb,
       aspect: p.aspect,
       open: box,
-      // Each piece's role now travels on the box itself (toStoredBox) — the
+      // Each piece's role now travels on the box itself (toStoredTrim) — the
       // old parallel trimRoles array is a read-only fallback for older data,
       // never written by a fresh publish.
-      trimBoxes: trim.length ? trim.map(toStoredBox) : undefined,
+      trimBoxes: trim.length ? trim.map(toStoredTrim) : undefined,
       light: p.light,
       createdAt: edit?.createdAt ?? Date.now(),
       source: source ?? edit?.source,
@@ -685,50 +563,6 @@ export function RoomBench({ onDone, edit }: { onDone: () => void; edit?: AdminRo
           </PanelFooter>
         )}
       </Panel>
-    </div>
-  );
-}
-
-function RoleChip({ label, color, disabled, onClick }: { label: string; color: string; disabled?: boolean; onClick: () => void }) {
-  return (
-    <button
-      onClick={onClick}
-      disabled={disabled}
-      style={{
-        display: 'flex', alignItems: 'center', gap: 7, minHeight: TOUCH_MIN, padding: '7px 14px', borderRadius: 999, fontFamily: 'inherit',
-        border: `1px solid ${disabled ? COLOR.line : color}`, background: 'transparent',
-        color: disabled ? COLOR.inkSoft : COLOR.ink, fontSize: 13, cursor: disabled ? 'default' : 'pointer', opacity: disabled ? 0.5 : 1,
-      }}
-    >
-      <span style={{ width: 8, height: 8, borderRadius: 999, background: color }} />
-      + {label}
-    </button>
-  );
-}
-
-function MoveResize({ onMove, onSize, sizeless }: { onMove: (dx: number, dy: number) => void; onSize: (dx: number, dy: number) => void; sizeless?: boolean }) {
-  const cell = (t: string, fn: () => void) => (
-    <button onClick={fn} style={{ background: '#fff', border: `1px solid ${COLOR.lineStrong}`, borderRadius: RADIUS_SM, color: COLOR.ink, cursor: 'pointer', fontSize: 13, minHeight: TOUCH_MIN, padding: 0 }}>{t}</button>
-  );
-  return (
-    <div style={{ display: 'flex', gap: 10 }}>
-      <div style={{ flex: 1 }}>
-        <div style={{ fontSize: 10, color: COLOR.inkSoft, marginBottom: 4 }}>O‘rni</div>
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3,1fr)', gap: 3 }}>
-          <span />{cell('▲', () => onMove(0, -8))}<span />
-          {cell('◀', () => onMove(-8, 0))}<span />{cell('▶', () => onMove(8, 0))}
-          <span />{cell('▼', () => onMove(0, 8))}<span />
-        </div>
-      </div>
-      {!sizeless && (
-        <div style={{ flex: 1 }}>
-          <div style={{ fontSize: 10, color: COLOR.inkSoft, marginBottom: 4 }}>O‘lchami</div>
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 3 }}>
-            {cell('En −', () => onSize(-8, 0))}{cell('En +', () => onSize(8, 0))}
-            {cell('Bo‘y −', () => onSize(0, -8))}{cell('Bo‘y +', () => onSize(0, 8))}
-          </div>
-        </div>
-      )}
     </div>
   );
 }
