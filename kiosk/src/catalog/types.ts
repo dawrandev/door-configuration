@@ -188,6 +188,27 @@ export interface Leaf {
    * it always applies, since there's nothing to match it against.
    */
   trimRoles?: TrimRole[];
+  /**
+   * A door's OWN nalichnik/korona, traced on its own photograph — for a
+   * door that was shot already standing in its matching casing, not just
+   * relying on whichever room it's later placed against. Undefined (every
+   * door before this) falls straight through to the room's own trim +
+   * `trimRoles` filter above; present, it REPLACES the room's trim entirely
+   * for this door (showing both at once would read as two different
+   * casings overlapping).
+   *
+   * `trimSource` is a padded, already-rectified (flat, perspective-
+   * corrected) crop of the original photo — wider than the leaf itself by
+   * `trimMargin` on each side, the same homography that squares up the
+   * leaf extended a little further out so it also catches whatever casing
+   * the photo actually shows around the door. `trimBoxes` is measured in
+   * fractions of THAT padded canvas, not the leaf's own tight crop
+   * (`image`) or the raw upload (`source`) — marking trim on an already-
+   * flat reference needs no extra maths to track the leaf's own scale.
+   */
+  trimMargin?: { left: number; right: number; top: number; bottom: number };
+  trimBoxes?: TrimPiece[];
+  trimSource?: string;
 }
 
 /**
@@ -196,6 +217,24 @@ export interface Leaf {
  * (which of those a given door comes with).
  */
 export type TrimRole = 'shaft' | 'crown' | 'footL' | 'footR' | 'extra';
+
+/** One piece of nalichnik/korona trim, in fractions of whatever photo it was
+ *  measured against — a room's, or (see `Leaf.trimBoxes`) a door's own. */
+export interface TrimPiece {
+  x: number; y: number; w: number; h: number;
+  /** The piece's ACTUAL outline (a closed polygon, wound clockwise from
+   *  top-left) — wins over the plain rectangle above when present. A
+   *  moulded crown is rarely a clean box. */
+  points?: { x: number; y: number }[];
+  /** A second, separately traced outline — the piece's inner edge, cut out
+   *  of the first. See the long-form note on `Room.trimBoxes` for why this
+   *  can't just be inferred from the doorway rectangle. */
+  holePoints?: { x: number; y: number }[];
+  /** What this piece IS. Optional only for older, unmeasured-by-role data —
+   *  a piece with no role is never excluded by a door's `trimRoles`. */
+  role?: TrimRole;
+  label?: string;
+}
 
 /**
  * A door handle finish. One dead-on cutout, recoloured — see tools/leaves.mjs.
@@ -256,15 +295,7 @@ export interface Room {
    * inner edge be traced to match the real photograph instead of trusting
    * that guess.
    */
-  trimBoxes?: {
-    x: number; y: number; w: number; h: number;
-    points?: { x: number; y: number }[];
-    holePoints?: { x: number; y: number }[];
-    /** What this piece IS. Optional only for older, unmeasured-by-role data
-     *  — a piece with no role is never excluded by a door's `trimRoles`. */
-    role?: TrimRole;
-    label?: string;
-  }[];
+  trimBoxes?: TrimPiece[];
   /**
    * The bench needs this to REOPEN a room and re-mark its doorway/trim — the
    * same reason Leaf keeps `source`. `thumb` already IS this photo (untouched,

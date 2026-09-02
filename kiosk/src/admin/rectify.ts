@@ -56,6 +56,11 @@ function homography(src: [Pt, Pt, Pt, Pt], OW: number, OH: number): number[] {
   return h;
 }
 
+/** Fractions of the leaf's own computed width/height to extend the rectify
+ *  canvas by on each side — see `rectify`'s `margin` parameter. */
+export interface Margin { left: number; right: number; top: number; bottom: number }
+const NO_MARGIN: Margin = { left: 0, right: 0, top: 0, bottom: 0 };
+
 /**
  * Warp the quad the corners describe onto a true rectangle.
  *
@@ -63,8 +68,17 @@ function homography(src: [Pt, Pt, Pt, Pt], OW: number, OH: number): number[] {
  * door keeps the shape it really is; only the perspective is removed. Bilinear
  * sampling keeps the far side, which the camera saw at lower resolution, from
  * going blocky.
+ *
+ * `margin`, when given, extends the output canvas past the leaf's own four
+ * corners — the same homography that places the leaf flat is defined over the
+ * whole plane, not just inside the quad, so evaluating it a bit further out
+ * pulls in whatever the photo actually shows just past the door: the casing,
+ * if the door was shot standing in its frame. No new maths, only a bigger
+ * canvas and a sample loop that starts before 0 and ends past OW/OH. Zero
+ * margin (the default) is pixel-identical to the un-padded call — every
+ * existing caller is unaffected.
  */
-export function rectify(img: HTMLImageElement | HTMLCanvasElement, corners: [Pt, Pt, Pt, Pt], targetW = 1200): HTMLCanvasElement {
+export function rectify(img: HTMLImageElement | HTMLCanvasElement, corners: [Pt, Pt, Pt, Pt], targetW = 1200, margin: Margin = NO_MARGIN): HTMLCanvasElement {
   const [TL, TR, BR, BL] = corners;
   const topW = Math.hypot(TR.x - TL.x, TR.y - TL.y);
   const botW = Math.hypot(BR.x - BL.x, BR.y - BL.y);
@@ -89,15 +103,24 @@ export function rectify(img: HTMLImageElement | HTMLCanvasElement, corners: [Pt,
     return sd[(cy * SW + cx) * 4 + c];
   };
 
-  const out = new ImageData(OW, OH);
-  for (let Y = 0; Y < OH; Y++) {
-    for (let X = 0; X < OW; X++) {
+  // The leaf's own [0,OW]x[0,OH] now sits inset by the margin inside a
+  // larger canvas — X0/Y0 is where output-space 0,0 (the leaf's own top
+  // left) lands within it.
+  const X0 = Math.round(margin.left * OW), Y0 = Math.round(margin.top * OH);
+  const PW = X0 + OW + Math.round(margin.right * OW);
+  const PH = Y0 + OH + Math.round(margin.bottom * OH);
+
+  const out = new ImageData(PW, PH);
+  for (let PY = 0; PY < PH; PY++) {
+    const Y = PY - Y0;
+    for (let PX = 0; PX < PW; PX++) {
+      const X = PX - X0;
       const d = h[6] * X + h[7] * Y + 1;
       const sx = (h[0] * X + h[1] * Y + h[2]) / d;
       const sy = (h[3] * X + h[4] * Y + h[5]) / d;
       const xi = Math.floor(sx), yi = Math.floor(sy);
       const fx = sx - xi, fy = sy - yi;
-      const o = (Y * OW + X) * 4;
+      const o = (PY * PW + PX) * 4;
       for (let c = 0; c < 3; c++) {
         out.data[o + c] =
           sample(xi, yi, c) * (1 - fx) * (1 - fy) +
@@ -109,8 +132,8 @@ export function rectify(img: HTMLImageElement | HTMLCanvasElement, corners: [Pt,
     }
   }
   const dc = document.createElement('canvas');
-  dc.width = OW;
-  dc.height = OH;
+  dc.width = PW;
+  dc.height = PH;
   dc.getContext('2d')!.putImageData(out, 0, 0);
   return dc;
 }
