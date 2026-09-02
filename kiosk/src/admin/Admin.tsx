@@ -94,7 +94,11 @@ export function Admin() {
         </div>
 
         {tab === 'doors' ? (
-          shownLeaves.length === 0 && hiddenLeaves.length === 0 ? (
+          // While searching, a hidden item never renders (search only shows
+          // shownLeaves) — so it must not count toward "there's something
+          // here", or a query matching zero visible doors renders a blank
+          // grid instead of the empty state.
+          shownLeaves.length === 0 && (q || hiddenLeaves.length === 0) ? (
             <EmptyState label={q ? 'Shu nomda eshik topilmadi' : 'Hozircha eshiklar yo‘q — yuqoridagi tugma bilan qo‘shing'} />
           ) : (
             <Grid>
@@ -102,7 +106,7 @@ export function Admin() {
               {!q && hiddenLeaves.map((id) => <HiddenCard key={id} label={BASE_LEAVES.find((l) => l.id === id)?.name.uz ?? id} onRestore={() => restoreLeaf(id)} />)}
             </Grid>
           )
-        ) : shownRooms.length === 0 && hiddenRooms.length === 0 ? (
+        ) : shownRooms.length === 0 && (q || hiddenRooms.length === 0) ? (
           <EmptyState label={q ? 'Shu nomda xona topilmadi' : 'Hozircha xonalar yo‘q — yuqoridagi tugma bilan qo‘shing'} />
         ) : (
           <Grid>
