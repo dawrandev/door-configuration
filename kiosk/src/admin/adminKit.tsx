@@ -2,6 +2,7 @@ import { createContext, useCallback, useContext, useRef, useState, type ReactNod
 import { COLOR, FONT, RADIUS, RADIUS_SM, TOUCH_MIN, TYPE } from '../design/tokens';
 import { PrimaryButton, GhostButton } from '../ui/controls';
 import { Ornament } from '../ui/Ornament';
+import type { TrimRole } from '../catalog/types';
 
 /**
  * The bench's own shared kit — everything DoorBench.tsx and RoomBench.tsx
@@ -16,6 +17,21 @@ import { Ornament } from '../ui/Ornament';
 /** A muted rust, not a bright web red — the one place the warm palette needs
  *  a "stop" colour, kept in the same family instead of a jarring foreign hue. */
 export const DANGER = { text: '#A6432C', border: 'rgba(166,67,44,.35)', bg: 'rgba(166,67,44,.07)' };
+
+/** Every trim-piece role, in the order they're offered — shared between
+ *  RoomBench (marking which pieces a room's architrave actually has) and
+ *  DoorBench (marking which of those a given door comes with). */
+export const ROLE_ORDER: TrimRole[] = ['shaft', 'crown', 'footL', 'footR'];
+/** Muted, editorial tones — not neon — so the box outlines and their row
+ *  swatches sit comfortably in the same warm, printed-catalogue palette as
+ *  the rest of the bench, while staying five clearly distinct hues. */
+export const ROLE_META: Record<TrimRole, { label: string; color: string }> = {
+  shaft: { label: 'Yelka', color: '#C0952E' },
+  crown: { label: 'Korona', color: '#A83D6B' },
+  footL: { label: 'Chap oyoq', color: '#1E8FA0' },
+  footR: { label: 'O‘ng oyoq', color: '#4C8C4A' },
+  extra: { label: 'Boshqa', color: '#B85A2E' },
+};
 
 export function Panel({ children }: { children: ReactNode }) {
   return (

@@ -175,7 +175,27 @@ export interface Leaf {
    * `'oq'` (as photographed) is never restricted by this: it isn't a paint.
    */
   colorIds?: string[];
+  /**
+   * Which nalichnik/korona pieces this door model comes with, by role. A
+   * room's trim is measured once, against its own photograph — this doesn't
+   * change which pieces PHYSICALLY exist in that photo, only which of them
+   * take paint when THIS door is standing in it. A flush modern door might
+   * come with just the shaft ring; a classical one might come with the ring,
+   * a crown, and both feet, even in the exact same room. Absent means every
+   * piece the room has applies — the same "no restriction" default `colorIds`
+   * uses, and what every door had before this was an axis. A trim piece with
+   * no `role` of its own (older, unlabelled data) is never filtered by this —
+   * it always applies, since there's nothing to match it against.
+   */
+  trimRoles?: TrimRole[];
 }
+
+/**
+ * A trim piece's role — which part of the architrave it is. Shared between
+ * `Room.trimBoxes[].role` (what a piece actually is) and `Leaf.trimRoles`
+ * (which of those a given door comes with).
+ */
+export type TrimRole = 'shaft' | 'crown' | 'footL' | 'footR' | 'extra';
 
 /**
  * A door handle finish. One dead-on cutout, recoloured — see tools/leaves.mjs.
@@ -236,7 +256,15 @@ export interface Room {
    * inner edge be traced to match the real photograph instead of trusting
    * that guess.
    */
-  trimBoxes?: { x: number; y: number; w: number; h: number; points?: { x: number; y: number }[]; holePoints?: { x: number; y: number }[] }[];
+  trimBoxes?: {
+    x: number; y: number; w: number; h: number;
+    points?: { x: number; y: number }[];
+    holePoints?: { x: number; y: number }[];
+    /** What this piece IS. Optional only for older, unmeasured-by-role data
+     *  — a piece with no role is never excluded by a door's `trimRoles`. */
+    role?: TrimRole;
+    label?: string;
+  }[];
   /**
    * The bench needs this to REOPEN a room and re-mark its doorway/trim — the
    * same reason Leaf keeps `source`. `thumb` already IS this photo (untouched,

@@ -4,8 +4,15 @@ import { rectify, stripHandle, neutraliseWhite, type Pt } from './rectify';
 import { saveLeaf, mergeColors, saveColor, type AdminLeaf, type AdminColor } from './adminStore';
 import { COLORS as BASE_COLORS, type DoorColor } from '../catalog/colors';
 import {
-  Panel, PanelBody, PanelFooter, Label, Section, inp, AdminPrimaryButton, AdminGhostButton, Seg, Pad, Handle, DANGER, useToast,
+  Panel, PanelBody, PanelFooter, Label, Section, inp, AdminPrimaryButton, AdminGhostButton, Seg, Pad, Handle, DANGER, useToast, ROLE_ORDER, ROLE_META,
 } from './adminKit';
+import type { TrimRole } from '../catalog/types';
+
+/** Every role offered when marking which nalichnik/korona pieces a door
+ *  comes with — the four standard ones plus "Boshqa", so a door that comes
+ *  with some one-off extra piece a room happens to have can still include
+ *  it. */
+const DOOR_TRIM_ROLES: TrimRole[] = [...ROLE_ORDER, 'extra'];
 
 /** Downscale an image to a compact JPEG data URL for storage/re-editing. */
 function compactSource(el: HTMLImageElement, maxW = 1300): string {
@@ -53,6 +60,19 @@ export function DoorBench({ onDone, edit }: { onDone: () => void; edit?: AdminLe
   const [newColorName, setNewColorName] = useState('');
   const [newColorHex, setNewColorHex] = useState('#8F7145');
 
+  // Which nalichnik/korona pieces this door comes with — a room's trim is
+  // measured once against its own photo, but which of those pieces take
+  // paint depends on which door is standing in the doorway. Defaults to
+  // every role, matching "no restriction" for a door that hasn't set this.
+  const [trimRoles, setTrimRoles] = useState<Set<TrimRole>>(() => new Set(DOOR_TRIM_ROLES));
+  const toggleTrimRole = (role: TrimRole) =>
+    setTrimRoles((s) => {
+      const next = new Set(s);
+      if (next.has(role)) next.delete(role);
+      else next.add(role);
+      return next;
+    });
+
   const wrapRef = useRef<HTMLDivElement>(null);
   const drag = useRef<number | null>(null);
 
@@ -68,6 +88,7 @@ export function DoorBench({ onDone, edit }: { onDone: () => void; edit?: AdminLe
     setName(edit.name.uz);
     setWhite(edit.white ?? true);
     setSelected(new Set(edit.colorIds ?? colors.map((c) => c.id)));
+    setTrimRoles(new Set(edit.trimRoles ?? DOOR_TRIM_ROLES));
     if (!edit.source) return;
     const el = new Image();
     el.onload = () => {
@@ -231,6 +252,11 @@ export function DoorBench({ onDone, edit }: { onDone: () => void; edit?: AdminLe
       // a frozen list — so this door also picks up any colour registered
       // AFTER today, exactly like it would have before this feature existed.
       colorIds: selected.size === colors.length ? undefined : [...selected],
+      // Same "all selected = no restriction" convention as colorIds — a door
+      // that comes with every role a room might have (the common case)
+      // saves as undefined, not a frozen list that would silently exclude a
+      // role added to the standard set later.
+      trimRoles: trimRoles.size === DOOR_TRIM_ROLES.length ? undefined : [...trimRoles],
     });
     setBusy(false);
     toast('Saqlandi ✓');
@@ -318,6 +344,40 @@ export function DoorBench({ onDone, edit }: { onDone: () => void; edit?: AdminLe
                   <input value={newColorName} onChange={(e) => setNewColorName(e.target.value)} style={{ ...inp, margin: 0, flex: 1 }} placeholder="Rang nomi" />
                   <AdminGhostButton onClick={addColor} style={{ width: 'auto', minHeight: TOUCH_MIN, padding: '0 14px', fontSize: 13 }}>+ Qo‘shish</AdminGhostButton>
                 </div>
+              </Section>
+
+              <Section title="Nalichnik va korona — bu eshik qaysi qismlar bilan sotiladi">
+                <div style={{ fontSize: 12, color: COLOR.inkSoft, lineHeight: 1.5, marginBottom: 10 }}>
+                  Xonaning nalichnigi bir marta o‘lchanadi, lekin har eshik uning
+                  qaysi qismini olib keladi — bu shu yerda belgilanadi. Masalan
+                  zamonaviy eshik faqat <b>Yelka</b>ni olib kelishi, Korona va
+                  oyoqlarsiz sotilishi mumkin.
+                </div>
+                <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
+                  {DOOR_TRIM_ROLES.map((role) => {
+                    const on = trimRoles.has(role);
+                    const meta = ROLE_META[role];
+                    return (
+                      <button
+                        key={role}
+                        onClick={() => toggleTrimRole(role)}
+                        style={{
+                          display: 'flex', alignItems: 'center', gap: 7, minHeight: TOUCH_MIN, padding: '6px 14px 6px 8px', borderRadius: 999, fontFamily: 'inherit',
+                          border: `1px solid ${on ? meta.color : COLOR.lineStrong}`, background: on ? 'rgba(143,113,69,.1)' : '#fff',
+                          color: COLOR.ink, fontSize: 13, cursor: 'pointer',
+                        }}
+                      >
+                        <span style={{ width: 11, height: 11, borderRadius: 999, background: meta.color, flex: '0 0 auto' }} />
+                        {meta.label}
+                      </button>
+                    );
+                  })}
+                </div>
+                {trimRoles.size === 0 && (
+                  <div style={{ fontSize: 12, color: DANGER.text, marginTop: 8 }}>
+                    Birorta qism belgilanmagan — bu eshik hech qanday nalichnik/korona bilan ko‘rinmaydi.
+                  </div>
+                )}
               </Section>
 
               <Section title="Joylashuv">

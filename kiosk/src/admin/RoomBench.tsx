@@ -1,11 +1,11 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { COLOR, RADIUS, RADIUS_SM, TOUCH_MIN, TYPE } from '../design/tokens';
 import { processRoom, type Rect } from './roomProcess';
-import { saveRoom, type AdminRoom, type TrimRole } from './adminStore';
-import { Panel, PanelBody, PanelFooter, Label, Section, inp, AdminPrimaryButton, Handle, DimHUD, DANGER, useToast } from './adminKit';
+import { saveRoom, type AdminRoom } from './adminStore';
+import { Panel, PanelBody, PanelFooter, Label, Section, inp, AdminPrimaryButton, Handle, DimHUD, DANGER, useToast, ROLE_ORDER, ROLE_META } from './adminKit';
 import { recolorTrim } from '../render/recolor';
 import type { Tint } from '../catalog/colors';
-import type { Room } from '../catalog/types';
+import type { Room, TrimRole } from '../catalog/types';
 
 function compactSource(el: HTMLImageElement, maxW = 1300): string {
   const scale = Math.min(1, maxW / el.width);
@@ -20,18 +20,6 @@ function compactSource(el: HTMLImageElement, maxW = 1300): string {
  *  default, so a missing or misplaced box is glaring rather than a subtle
  *  shade of white-on-white. */
 const PREVIEW_TINT: Tint = [0.22, 0.32, 0.62];
-
-const ROLE_ORDER: TrimRole[] = ['shaft', 'crown', 'footL', 'footR'];
-/** Muted, editorial tones — not neon — so the box outlines and their row
- *  swatches sit comfortably in the same warm, printed-catalogue palette as
- *  the rest of the bench, while staying five clearly distinct hues. */
-const ROLE_META: Record<TrimRole, { label: string; color: string }> = {
-  shaft: { label: 'Yelka', color: '#C0952E' },
-  crown: { label: 'Korona', color: '#A83D6B' },
-  footL: { label: 'Chap oyoq', color: '#1E8FA0' },
-  footR: { label: 'O‘ng oyoq', color: '#4C8C4A' },
-  extra: { label: 'Boshqa', color: '#B85A2E' },
-};
 
 interface Point { x: number; y: number }
 
@@ -178,27 +166,23 @@ function defaultRectFor(role: TrimRole, open: Rect, trim: TrimBox[]): Rect {
   }
 }
 
-/**
- * A guess at which box is which, for a built-in room being opened at the
- * bench for the first time — it shipped with `trimBoxes` (hand-measured, see
- * tools/rooms.mjs) but no `trimRoles` (that field only exists for the bench).
- * Purely a starting label for editing; once republished, trimRoles is real
- * and this never runs again for that room.
- */
-type StoredTrim = Rect & { points?: Point[]; holePoints?: Point[] };
+type StoredTrim = Rect & { points?: Point[]; holePoints?: Point[]; role?: TrimRole; label?: string };
 
-/** What a piece publishes: its bbox, its real outline, and its inner cut
- *  when it has one. */
+/** What a piece publishes: its bbox, its real outline, its inner cut when it
+ *  has one, and — going forward — its role right on the box itself, rather
+ *  than in a second array a caller has to keep zipped to this one. */
 function toStoredBox(t: TrimBox): StoredTrim {
-  return { ...t.rect, points: t.points, holePoints: t.holePoints };
+  return { ...t.rect, points: t.points, holePoints: t.holePoints, role: t.role, label: t.label };
 }
 
 /** Build a bench TrimBox from whatever a room stored. Older data (saved
  *  before free points existed) has no `points` — seeded from its rect, same
  *  as a brand-new piece, so it opens as 4 draggable corners rather than
  *  erroring. `holePoints` stays undefined unless the room actually has one —
- *  it is never assumed. */
-function toTrimBox(id: string, role: TrimRole, label: string | undefined, box: StoredTrim): TrimBox {
+ *  it is never assumed. `role`/`label` default from the box itself; callers
+ *  reopening older data override them from wherever that data actually kept
+ *  them (see the `edit.trimBoxes` effect below). */
+function toTrimBox(id: string, box: StoredTrim, role: TrimRole = box.role ?? 'extra', label: string | undefined = box.label): TrimBox {
   const rect = { x: box.x, y: box.y, w: box.w, h: box.h };
   return {
     id, role, label, rect,
@@ -207,6 +191,13 @@ function toTrimBox(id: string, role: TrimRole, label: string | undefined, box: S
   };
 }
 
+/**
+ * A guess at which box is which, for a room whose trim pieces carry no role
+ * at all yet (neither on the box nor in the older parallel array) — shipped
+ * `trimBoxes` (hand-measured, see tools/rooms.mjs) predates roles entirely.
+ * Purely a starting label for editing; once republished, every piece has a
+ * real role on it and this never runs again for that room.
+ */
 function inferRoles(boxes: StoredTrim[]): TrimBox[] {
   if (boxes.length === 0) return [];
   const byArea = [...boxes].sort((a, b) => b.w * b.h - a.w * a.h);
@@ -214,11 +205,11 @@ function inferRoles(boxes: StoredTrim[]): TrimBox[] {
   const rest = boxes.filter((b) => b !== shaft);
   const crown = rest.find((b) => b.y + b.h <= shaft.y + 0.01);
   const feet = rest.filter((b) => b !== crown).sort((a, b) => a.x - b.x);
-  const out: TrimBox[] = [toTrimBox('shaft', 'shaft', undefined, shaft)];
-  if (crown) out.push(toTrimBox('crown', 'crown', undefined, crown));
-  if (feet[0]) out.push(toTrimBox('footL', 'footL', undefined, feet[0]));
-  if (feet[1]) out.push(toTrimBox('footR', 'footR', undefined, feet[1]));
-  feet.slice(2).forEach((box, i) => out.push(toTrimBox(`extra-${i}`, 'extra', undefined, box)));
+  const out: TrimBox[] = [toTrimBox('shaft', shaft, 'shaft')];
+  if (crown) out.push(toTrimBox('crown', crown, 'crown'));
+  if (feet[0]) out.push(toTrimBox('footL', feet[0], 'footL'));
+  if (feet[1]) out.push(toTrimBox('footR', feet[1], 'footR'));
+  feet.slice(2).forEach((box, i) => out.push(toTrimBox(`extra-${i}`, box, 'extra')));
   return out;
 }
 
@@ -263,9 +254,14 @@ export function RoomBench({ onDone, edit }: { onDone: () => void; edit?: AdminRo
     if (!edit) return;
     setName(edit.name.uz);
     if (edit.trimBoxes) {
-      setTrim(edit.trimRoles && edit.trimRoles.length === edit.trimBoxes.length
-        ? edit.trimRoles.map((r, i) => toTrimBox(`${r.role}-${i}`, r.role, r.label, edit.trimBoxes![i]))
-        : inferRoles(edit.trimBoxes));
+      const boxes = edit.trimBoxes;
+      setTrim(
+        boxes.every((b) => b.role)
+          ? boxes.map((b, i) => toTrimBox(`${b.role}-${i}`, b))
+          : edit.legacyTrimRoles && edit.legacyTrimRoles.length === boxes.length
+            ? edit.legacyTrimRoles.map((r, i) => toTrimBox(`${r.role}-${i}`, boxes[i], r.role, r.label))
+            : inferRoles(boxes)
+      );
     }
     if (!edit.source) return;
     const el = new Image();
@@ -461,8 +457,10 @@ export function RoomBench({ onDone, edit }: { onDone: () => void; edit?: AdminRo
       thumb,
       aspect: p.aspect,
       open: box,
+      // Each piece's role now travels on the box itself (toStoredBox) — the
+      // old parallel trimRoles array is a read-only fallback for older data,
+      // never written by a fresh publish.
       trimBoxes: trim.length ? trim.map(toStoredBox) : undefined,
-      trimRoles: trim.length ? trim.map((t) => ({ role: t.role, label: t.label })) : undefined,
       light: p.light,
       createdAt: edit?.createdAt ?? Date.now(),
       source: source ?? edit?.source,

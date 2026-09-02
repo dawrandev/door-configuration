@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, type ReactNode } from 'react';
+import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { useKiosk } from '../store/useKiosk';
 import { HANDLE_PLACE, HANDLES } from '../catalog/handles.generated';
 import { tintFor, TRIM_SAME, type Tint } from '../catalog/colors';
@@ -66,10 +66,24 @@ export function WallStage({ onSwipe, children }: { onSwipe?: (delta: number) => 
     return () => window.clearTimeout(t);
   }, [layers]);
 
+  // Which of the room's measured trim pieces this door actually comes with.
+  // A piece with no role of its own (older, unlabelled data) always applies
+  // — there's nothing on it to match against. leaf.trimRoles undefined means
+  // no restriction, same "everything applies" default colorIds uses.
+  // Memoized on reference, not rebuilt every render: room/leaf are stable
+  // (Array.find returns the same object while the store's arrays don't
+  // change), so this only recomputes when the room or the door actually
+  // changes, not on every unrelated re-render of the stage.
+  const trimRoom = useMemo(() => {
+    if (!leaf.trimRoles) return room;
+    const trimBoxes = room.trimBoxes?.filter((b) => !b.role || leaf.trimRoles!.includes(b.role));
+    return { ...room, trimBoxes };
+  }, [room, leaf.trimRoles]);
+
   const trimUrl = useRender(
-    () => (trimPaint ? recolorTrim(room, trimPaint) : Promise.resolve(null)),
+    () => (trimPaint ? recolorTrim(trimRoom, trimPaint) : Promise.resolve(null)),
     '',
-    [room, trimColorId, colorId]
+    [trimRoom, trimColorId, colorId]
   );
 
   const swipe = {

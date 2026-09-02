@@ -1,5 +1,7 @@
-import type { Leaf, Room } from '../catalog/types';
+import type { Leaf, Room, TrimRole } from '../catalog/types';
 import type { DoorColor } from '../catalog/colors';
+
+export type { TrimRole };
 
 /**
  * Everything the bench changes, kept in this browser.
@@ -32,14 +34,17 @@ export type AdminLeaf = Leaf & {
   white?: boolean;
   handleChoice?: 'left' | 'right' | 'none';
 };
-/** What a trimBoxes[i] rectangle IS, for re-editing — recolorTrim() never reads this. */
-export type TrimRole = 'shaft' | 'crown' | 'footL' | 'footR' | 'extra';
 export type AdminRoom = Room & {
   createdAt: number;
   source?: string;
   box?: { x: number; y: number; w: number; h: number };
-  /** Parallel to `trimBoxes`, same order — the bench's memory of which box is which. */
-  trimRoles?: { role: TrimRole; label?: string }[];
+  /**
+   * Read-only fallback for rooms saved before a piece's role lived on the
+   * box itself (`Room.trimBoxes[].role`) — parallel to `trimBoxes`, same
+   * order. Never written by a fresh publish; only consulted when reopening
+   * older data that has it and the boxes themselves don't.
+   */
+  legacyTrimRoles?: { role: TrimRole; label?: string }[];
 };
 /** A colour a salesperson registered at the bench — add-only, no edit or hide:
  *  once a shade is mixed and named, there's no reason to take it away from a
