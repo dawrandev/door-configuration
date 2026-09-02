@@ -4,7 +4,7 @@ import { rectify, stripHandle, neutraliseWhite, type Pt } from './rectify';
 import { saveLeaf, mergeColors, saveColor, type AdminLeaf, type AdminColor } from './adminStore';
 import { COLORS as BASE_COLORS, type DoorColor } from '../catalog/colors';
 import {
-  Panel, PanelBody, PanelFooter, Label, Section, inp, AdminPrimaryButton, AdminGhostButton, Seg, Pad, Handle, useToast,
+  Panel, PanelBody, PanelFooter, Label, Section, inp, AdminPrimaryButton, AdminGhostButton, Seg, Pad, Handle, DANGER, useToast,
 } from './adminKit';
 
 /** Downscale an image to a compact JPEG data URL for storage/re-editing. */
@@ -283,6 +283,11 @@ export function DoorBench({ onDone, edit }: { onDone: () => void; edit?: AdminLe
               </Section>
 
               <Section title="Ranglar — mijoz shu eshik uchun tanlay oladi">
+                {selected.size === 0 && (
+                  <div style={{ fontSize: 12, color: DANGER.text, marginBottom: 8 }}>
+                    Birorta rang belgilanmagan — mijoz faqat "Oq" (fotosuratdagidek) holatda ko‘radi.
+                  </div>
+                )}
                 <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
                   {colors.map((c) => {
                     const on = selected.has(c.id);
