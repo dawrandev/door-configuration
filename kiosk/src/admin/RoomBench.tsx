@@ -415,11 +415,37 @@ export function RoomBench({ onDone, edit }: { onDone: () => void; edit?: AdminRo
       trimBoxes: trim.map(toStoredBox),
       light: [1, 1, 1],
     };
+    let live = true;
     const t = window.setTimeout(() => {
-      recolorTrim(draftRoom, PREVIEW_TINT).then(setTrimPreview);
+      // A drag issues a new derive on every debounce tick; nothing stops an
+      // earlier tick's promise from resolving after a later one's. Without
+      // this guard the older result can land last and overwrite the current
+      // drag position with a stale outline.
+      recolorTrim(draftRoom, PREVIEW_TINT).then((url) => { if (live) setTrimPreview(url); });
     }, 150);
-    return () => window.clearTimeout(t);
+    return () => { live = false; window.clearTimeout(t); };
   }, [img, box, trim, source, edit]);
+
+  /**
+   * A live look at what publish() will actually save — the doorway recess
+   * painted in and the wall's ambient light sampled, both computed by
+   * processRoom() exactly as publish() calls it. Publish used to be gated
+   * behind a manual "Ko'rish" step that ran this same function; that gate is
+   * gone (redundant once the doorway box already renders live on the photo
+   * while it's being dragged), but the recess/light result itself was never
+   * visible before saving without it. This closes that gap without bringing
+   * the extra tap back.
+   */
+  const [finalPreview, setFinalPreview] = useState<string | null>(null);
+  useEffect(() => {
+    if (!img || !box) { setFinalPreview(null); return; }
+    let live = true;
+    const t = window.setTimeout(() => {
+      const p = processRoom(img, box);
+      if (live) setFinalPreview(p.image);
+    }, 200);
+    return () => { live = false; window.clearTimeout(t); };
+  }, [img, box]);
 
   const publish = () => {
     if (!img || !box) return;
@@ -550,6 +576,14 @@ export function RoomBench({ onDone, edit }: { onDone: () => void; edit?: AdminRo
           </div>
           {img && box && (
             <>
+              {/* What publish() will actually save — the recess painted in,
+                  the wall light sampled — so that's seen before saving, not
+                  just the box outline over the raw photo. */}
+              <Label>Yakuniy ko‘rinish</Label>
+              <div style={{ display: 'flex', justifyContent: 'center', background: COLOR.paper, border: `1px solid ${COLOR.line}`, borderRadius: RADIUS, padding: 10, minHeight: 100 }}>
+                {finalPreview ? <img src={finalPreview} alt="" style={{ maxHeight: 180, borderRadius: RADIUS_SM }} /> : <span style={{ color: COLOR.inkSoft, fontSize: 12, alignSelf: 'center' }}>teshikni sozlang…</span>}
+              </div>
+
               <Section title="Nomlanish">
                 <Label>Nomi</Label>
                 <input value={name} onChange={(e) => setName(e.target.value)} style={inp} placeholder="Masalan: Yorug‘ zal" />
@@ -676,7 +710,7 @@ function RoleChip({ label, color, disabled, onClick }: { label: string; color: s
 
 function MoveResize({ onMove, onSize, sizeless }: { onMove: (dx: number, dy: number) => void; onSize: (dx: number, dy: number) => void; sizeless?: boolean }) {
   const cell = (t: string, fn: () => void) => (
-    <button onClick={fn} style={{ background: '#fff', border: `1px solid ${COLOR.lineStrong}`, borderRadius: RADIUS_SM, color: COLOR.ink, cursor: 'pointer', fontSize: 13, minHeight: 40, padding: 0 }}>{t}</button>
+    <button onClick={fn} style={{ background: '#fff', border: `1px solid ${COLOR.lineStrong}`, borderRadius: RADIUS_SM, color: COLOR.ink, cursor: 'pointer', fontSize: 13, minHeight: TOUCH_MIN, padding: 0 }}>{t}</button>
   );
   return (
     <div style={{ display: 'flex', gap: 10 }}>

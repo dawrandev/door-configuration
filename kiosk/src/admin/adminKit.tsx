@@ -101,7 +101,7 @@ export function Seg({ opts, value, onPick }: { opts: { id: string; label: string
 
 export function Pad({ onNudge }: { onNudge: (dx: number, dy: number) => void }) {
   const b = (t: string, dx: number, dy: number) => (
-    <button onClick={() => onNudge(dx, dy)} style={{ background: '#fff', border: `1px solid ${COLOR.lineStrong}`, borderRadius: RADIUS_SM, color: COLOR.ink, cursor: 'pointer', fontSize: 13, minHeight: 40, padding: 0 }}>{t}</button>
+    <button onClick={() => onNudge(dx, dy)} style={{ background: '#fff', border: `1px solid ${COLOR.lineStrong}`, borderRadius: RADIUS_SM, color: COLOR.ink, cursor: 'pointer', fontSize: 13, minHeight: TOUCH_MIN, padding: 0 }}>{t}</button>
   );
   return (
     <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3,1fr)', gap: 3 }}>
