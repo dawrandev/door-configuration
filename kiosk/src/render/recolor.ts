@@ -171,13 +171,31 @@ function drawAt(img: HTMLImageElement, workW: number): { canvas: HTMLCanvasEleme
  * Results are cached by part + colour + source length (the length catches a
  * bench override republished under the same id). A recolour costs one derive
  * (~100ms) and one composite (~50ms) the first time; every later look is free.
+ *
+ * Capped, LRU-ish (a Map iterates in insertion order, so re-inserting a key
+ * on every hit keeps it "recent" and the oldest untouched entry is always
+ * first): a showroom session only ever touches a handful of leaf/tint and
+ * trim/tint combinations, so the cap is never felt there. It exists for the
+ * admin bench's live preview, which derives a genuinely new trim render on
+ * every drag frame (the box's exact coordinates are part of the key) — with
+ * no cap, a few minutes of dragging a trim point around would otherwise pin
+ * every intermediate position's rendered PNG in memory for the rest of the
+ * page's life, on the same cache the customer-facing stage shares.
  */
+const CACHE_MAX = 60;
 const cache = new Map<string, Promise<string | null>>();
 function cached(key: string, make: () => Promise<string | null>): Promise<string | null> {
-  let p = cache.get(key);
-  if (!p) {
-    p = make().catch(() => null);
-    cache.set(key, p);
+  const hit = cache.get(key);
+  if (hit) {
+    cache.delete(key);
+    cache.set(key, hit);
+    return hit;
+  }
+  const p = make().catch(() => null);
+  cache.set(key, p);
+  if (cache.size > CACHE_MAX) {
+    const oldest = cache.keys().next().value;
+    if (oldest !== undefined) cache.delete(oldest);
   }
   return p;
 }
@@ -257,8 +275,13 @@ export function recolorTrim(room: Room, tint: Tint): Promise<string | null> {
   // boxes never change at runtime, but the admin bench's live preview edits
   // them on every drag, and a stale cache hit there would show the wrong shape.
   const boxKey = boxes.map((b) => `${b.x},${b.y},${b.w},${b.h},${b.points?.map((p) => `${p.x},${p.y}`).join(',') ?? ''},${b.holePoints?.map((p) => `${p.x},${p.y}`).join(',') ?? ''}`).join(';');
-  return cached(`trim|${room.id}|${tint.join(',')}|${room.image.length}|${boxKey}`, async () => {
-    const img = await loadImage(room.thumb ?? room.image);
+  // Keyed on the length of whatever is actually loaded below (thumb when
+  // there is one) — keying on room.image while loading room.thumb let a
+  // republish that only changed the thumb serve a stale cached render under
+  // a key that still looked fresh.
+  const roomSrc = room.thumb ?? room.image;
+  return cached(`trim|${room.id}|${tint.join(',')}|${roomSrc.length}|${boxKey}`, async () => {
+    const img = await loadImage(roomSrc);
     const { canvas, w, h } = drawAt(img, CASING_W);
 
     const ux0 = Math.min(...boxes.map((b) => b.x));
