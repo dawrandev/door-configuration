@@ -7,6 +7,7 @@ import {
   Panel, PanelBody, PanelFooter, Label, Section, inp, AdminPrimaryButton, AdminGhostButton, Seg, Pad, Handle, DANGER, useToast, ROLE_ORDER, ROLE_META, RoleChip, MoveResize,
 } from './adminKit';
 import { bboxOfPoints, seedPoints, defaultRectFor, nearestLoop, toStoredTrim, toTrimState, type TrimPieceState } from './trimGeometry';
+import { buildEdgeMap, snapToEdge, type EdgeMap } from './edgeSnap';
 import type { TrimRole } from '../catalog/types';
 
 /** Every role offered when marking which nalichnik/korona pieces a door
@@ -88,6 +89,18 @@ export function DoorBench({ onDone, edit }: { onDone: () => void; edit?: AdminLe
   const [trim, setTrim] = useState<TrimPieceState[]>([]);
   const [activeTrimId, setActiveTrimId] = useState<string | null>(null);
   const [paddedImg, setPaddedImg] = useState<HTMLImageElement | null>(null);
+  // Same magnetic point-snap RoomBench's trim editor has, run against the
+  // padded preview — rebuilt whenever that preview itself is (margin/corner
+  // changes), never per drag frame.
+  const [edgeMap, setEdgeMap] = useState<EdgeMap | null>(null);
+  const [magnetSnap, setMagnetSnap] = useState(true);
+  useEffect(() => {
+    setEdgeMap(paddedImg ? buildEdgeMap(paddedImg) : null);
+  }, [paddedImg]);
+  const snap = useCallback(
+    (p: { x: number; y: number }) => (magnetSnap && edgeMap ? snapToEdge(edgeMap, p) : p),
+    [magnetSnap, edgeMap]
+  );
 
   const wrapRef = useRef<HTMLDivElement>(null);
   const drag = useRef<number | null>(null);
@@ -256,7 +269,7 @@ export function DoorBench({ onDone, edit }: { onDone: () => void; edit?: AdminLe
   }, []);
   const onTrimMove = (e: React.PointerEvent) => {
     if (!trimDrag.current) return;
-    const p = toTrimFrac(e.clientX, e.clientY);
+    const p = snap(toTrimFrac(e.clientX, e.clientY));
     const { trimId, loop, index } = trimDrag.current;
     setTrim((ts) => ts.map((t) => {
       if (t.id !== trimId) return t;
@@ -301,7 +314,7 @@ export function DoorBench({ onDone, edit }: { onDone: () => void; edit?: AdminLe
     if (trimDrag.current) return;
     const active = trim.find((t) => t.id === activeTrimId);
     if (!active) return;
-    const p = toTrimFrac(e.clientX, e.clientY);
+    const p = snap(toTrimFrac(e.clientX, e.clientY));
     const { loop, index: idx } = nearestLoop(active, p);
     setTrim((ts) => ts.map((t) => {
       if (t.id !== active.id) return t;
@@ -593,6 +606,11 @@ export function DoorBench({ onDone, edit }: { onDone: () => void; edit?: AdminLe
                   <>
                     <Label>Atrofni ochish — {(margin * 100).toFixed(0)}%</Label>
                     <input type="range" min={0.03} max={0.4} step={0.01} value={margin} onChange={(e) => setMargin(+e.target.value)} style={{ width: '100%' }} />
+
+                    <label style={{ display: 'flex', alignItems: 'center', gap: 8, minHeight: TOUCH_MIN, marginTop: 4, fontSize: 12, color: COLOR.ink, cursor: 'pointer' }}>
+                      <input type="checkbox" checked={magnetSnap} onChange={(e) => setMagnetSnap(e.target.checked)} />
+                      Nuqtani chekkaga magnit bilan tortish
+                    </label>
 
                     <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginTop: 10 }}>
                       {ROLE_ORDER.map((role) => {
