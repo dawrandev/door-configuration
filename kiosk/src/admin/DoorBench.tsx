@@ -667,7 +667,10 @@ export function DoorBench({ onDone, edit }: { onDone: () => void; edit?: AdminLe
 
               <Section title="Joylashuv">
                 <Label>Kattalashtirish — {(zoom * 100).toFixed(0)}%</Label>
-                <input type="range" min={0.08} max={2} step={0.02} value={zoom} onChange={(e) => setZoom(+e.target.value)} style={{ width: '100%' }} />
+                {/* Also drives the trim studio's own zoom (see tDispW/tDispH
+                    above) — dense, ornate trim needs room on screen to place
+                    close points without adjacent 44px handles overlapping. */}
+                <input type="range" min={0.08} max={8} step={0.02} value={zoom} onChange={(e) => setZoom(+e.target.value)} style={{ width: '100%' }} />
                 <Label>Burchakni aniqlash</Label>
                 <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
                   {corners.map((_, i) => (

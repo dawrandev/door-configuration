@@ -467,7 +467,10 @@ export function RoomBench({ onDone, edit }: { onDone: () => void; edit?: AdminRo
 
               <Section title="Teshik">
                 <Label>Kattalashtirish — {(zoom * 100).toFixed(0)}%</Label>
-                <input type="range" min={0.08} max={2} step={0.02} value={zoom} onChange={(e) => setZoom(+e.target.value)} style={{ width: '100%' }} />
+                {/* Dense, ornate trim (a fluted corona) needs many points close
+                    together in the photo — 200% wasn't enough room on screen
+                    to place them without adjacent 44px handles overlapping. */}
+                <input type="range" min={0.08} max={8} step={0.02} value={zoom} onChange={(e) => setZoom(+e.target.value)} style={{ width: '100%' }} />
                 <Label>Teshikni surish</Label>
                 <MoveResize onMove={(dx, dy) => nudgeOpen(dx, dy, 'move')} onSize={(dx, dy) => nudgeOpen(dx, dy, 'size')} />
               </Section>
