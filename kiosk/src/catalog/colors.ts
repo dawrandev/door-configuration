@@ -23,6 +23,12 @@ export const DEFAULT_COLOR = 'oq';
 /** The trim's default state: "whatever the door is". Resolved at render time. */
 export const TRIM_SAME = 'same';
 
+/** The trim DESIGN's default state: no independent pick — falls through to
+ *  whatever the door or room already provides (see `WallStage.tsx`'s trim
+ *  priority). Independent of `TRIM_SAME`/`trimColorId`, which is about
+ *  colour, not which physical design is shown. */
+export const TRIM_DEFAULT = 'default';
+
 export const COLORS: DoorColor[] = [
   { id: 'oq', name: { uz: 'Oq', kk: 'Aq', ru: 'Белый' }, hex: '#F3F1EB' },
   { id: 'krem', name: { uz: 'Krem', kk: 'Krem', ru: 'Кремовый' }, hex: '#E9DFC7' },

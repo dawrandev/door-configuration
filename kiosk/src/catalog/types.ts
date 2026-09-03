@@ -237,6 +237,30 @@ export interface TrimPiece {
 }
 
 /**
+ * A nalichnik/korona DESIGN, independently choosable — not tied to any one
+ * room or door. Authored the same way as `Leaf`'s own trim (`admin/TrimBench.tsx`
+ * is a trimmed-down clone of `DoorBench`'s own-trim tracer): a photo, four
+ * corners marking a notional "opening" rectangle within it (also flattening
+ * the photo if it was shot at a slight angle, via the same `rectify()`
+ * homography a door's corners use), a margin revealing the casing around
+ * that rectangle, and pieces traced on the result.
+ *
+ * Deliberately its own type rather than sharing one with `Leaf`'s three trim
+ * fields — same shape, kept separate so nothing about `Leaf` has to change.
+ */
+export interface TrimModel {
+  id: string;
+  name: Tr;
+  /** Fractions of the marked opening rect's own width/height — same meaning
+   *  as `Leaf.trimMargin`. */
+  trimMargin: { left: number; right: number; top: number; bottom: number };
+  trimBoxes: TrimPiece[];
+  /** The padded, rectified (flat) photo `trimBoxes` are measured against and
+   *  rendered from — same role as `Leaf.trimSource`. */
+  trimSource: string;
+}
+
+/**
  * A door handle finish. One dead-on cutout, recoloured — see tools/leaves.mjs.
  * It is placed on a leaf at that leaf's `handleAt`, mirrored to `handleSide`.
  */

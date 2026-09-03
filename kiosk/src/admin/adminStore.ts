@@ -1,4 +1,4 @@
-import type { Leaf, Room, TrimRole } from '../catalog/types';
+import type { Leaf, Room, TrimModel, TrimRole } from '../catalog/types';
 import type { DoorColor } from '../catalog/colors';
 
 export type { TrimRole };
@@ -18,6 +18,8 @@ const K = {
   rooms: 'dc.rooms.v1',
   roomEdits: 'dc.roomedits.v1',
   colors: 'dc.colors.v1',
+  trims: 'dc.trims.v1',
+  trimEdits: 'dc.trimedits.v1',
 };
 
 /**
@@ -50,6 +52,11 @@ export type AdminRoom = Room & {
  *  once a shade is mixed and named, there's no reason to take it away from a
  *  door that already wears it. */
 export type AdminColor = DoorColor & { createdAt: number };
+export type AdminTrim = TrimModel & {
+  createdAt: number;
+  source?: string;
+  corners?: { x: number; y: number }[];
+};
 /** A light edit that overlays a built-in OR admin item, never replacing it. */
 export interface Edit {
   name?: string;
@@ -123,6 +130,28 @@ export function restoreRoom(id: string) {
   if (e[id]) { delete e[id].hidden; write(K.roomEdits, e); }
 }
 
+// ---- trim designs ----
+export const loadTrims = (): AdminTrim[] => read<AdminTrim[]>(K.trims, []);
+export const loadTrimEdits = (): Record<string, Edit> => read(K.trimEdits, {});
+
+export function saveTrimModel(trim: AdminTrim) {
+  write(K.trims, [...loadTrims().filter((t) => t.id !== trim.id), trim]);
+}
+export function editTrim(id: string, patch: Edit) {
+  const e = loadTrimEdits();
+  e[id] = { ...e[id], ...patch };
+  write(K.trimEdits, e);
+}
+export function removeTrimModel(id: string) {
+  if (loadTrims().some((t) => t.id === id)) write(K.trims, loadTrims().filter((t) => t.id !== id));
+  else editTrim(id, { hidden: true });
+}
+export const isTrimOverridden = (id: string) => !id.startsWith('a-') && loadTrims().some((t) => t.id === id);
+export function restoreTrimModel(id: string) {
+  const e = loadTrimEdits();
+  if (e[id]) { delete e[id].hidden; write(K.trimEdits, e); }
+}
+
 // ---- colours ----
 export const loadColors = (): AdminColor[] => read<AdminColor[]>(K.colors, []);
 export function saveColor(color: AdminColor) {
@@ -168,6 +197,12 @@ export function mergeRooms(base: Room[]): Room[] {
 /** No edits to overlay — colours are add-only, so this is just the dedup. */
 export function mergeColors(base: DoorColor[]): DoorColor[] {
   return dedup(base, loadColors());
+}
+export function mergeTrims(base: TrimModel[]): TrimModel[] {
+  const edits = loadTrimEdits();
+  return dedup(base, loadTrims())
+    .filter((t) => !edits[t.id]?.hidden)
+    .map((t) => (edits[t.id]?.name ? { ...t, name: { uz: edits[t.id].name!, kk: edits[t.id].name!, ru: edits[t.id].name! } } : t));
 }
 
 /** True for a built-in item, whose pixels are in the bundle (hidden, not deleted). */
