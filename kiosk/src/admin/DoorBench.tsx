@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { COLOR, RADIUS, RADIUS_SM, TOUCH_MIN, TYPE } from '../design/tokens';
 import { rectify, stripHandle, neutraliseWhite, type Pt, type Margin } from './rectify';
-import { saveLeaf, mergeColors, saveColor, type AdminLeaf, type AdminColor } from './adminStore';
+import { saveLeaf, saveTrimModel, mergeColors, saveColor, type AdminLeaf, type AdminColor, type AdminTrim } from './adminStore';
 import { COLORS as BASE_COLORS, type DoorColor } from '../catalog/colors';
 import {
   Panel, PanelBody, PanelFooter, Label, Section, inp, AdminPrimaryButton, AdminGhostButton, Seg, Pad, Handle, DANGER, useToast, ROLE_ORDER, ROLE_META, RoleChip, MoveResize,
@@ -89,6 +89,13 @@ export function DoorBench({ onDone, edit }: { onDone: () => void; edit?: AdminLe
   const [trim, setTrim] = useState<TrimPieceState[]>([]);
   const [activeTrimId, setActiveTrimId] = useState<string | null>(null);
   const [paddedImg, setPaddedImg] = useState<HTMLImageElement | null>(null);
+  // A door is often PHOTOGRAPHED already standing in a good casing — tracing
+  // it above already keeps it for this one door, but the same trace is real
+  // trim worth offering on its own, not thrown away just because it started
+  // on a door photo. Publishing it as an independent TrimModel too means a
+  // colleague never re-shoots the same casing separately in TrimBench.
+  const [alsoAddToCatalog, setAlsoAddToCatalog] = useState(false);
+  const [catalogTrimName, setCatalogTrimName] = useState('');
   // Same magnetic point-snap RoomBench's trim editor has, run against the
   // padded preview — rebuilt whenever that preview itself is (margin/corner
   // changes), never per drag frame. The shaft (yelka) is a plain straight
@@ -169,6 +176,8 @@ export function DoorBench({ onDone, edit }: { onDone: () => void; edit?: AdminLe
       setTrace(false);
       setTrim([]);
       setActiveTrimId(null);
+      setAlsoAddToCatalog(false);
+      setCatalogTrimName('');
       if (!name) setName(f.name.replace(/\.[^.]+$/, ''));
     };
     el.src = URL.createObjectURL(f);
@@ -413,6 +422,26 @@ export function DoorBench({ onDone, edit }: { onDone: () => void; edit?: AdminLe
       trimBoxes: hasOwnTrim ? trim.map(toStoredTrim) : undefined,
       trimSource: hasOwnTrim ? trimSource : undefined,
     });
+
+    // The same traced casing, published a SECOND time as its own catalog
+    // entry — a fresh id, deliberately not the door's, so editing one never
+    // touches the other. `source`/`corners` carry over unchanged (same
+    // photo, same marks), so TrimBench can reopen and re-trace it exactly
+    // like anything authored there directly.
+    if (hasOwnTrim && alsoAddToCatalog) {
+      const catalogTrim: AdminTrim = {
+        id: 'a-' + Date.now().toString(36) + '-t',
+        name: { uz: catalogTrimName || 'Nalichnik', kk: catalogTrimName || 'Naličnik', ru: catalogTrimName || 'Наличник' },
+        trimMargin: marginObj,
+        trimBoxes: trim.map(toStoredTrim),
+        trimSource: trimSource!,
+        createdAt: Date.now(),
+        source: source ?? edit?.source,
+        corners: corners.map((c) => ({ x: +(c.x / img.width).toFixed(4), y: +(c.y / img.height).toFixed(4) })),
+      };
+      saveTrimModel(catalogTrim);
+    }
+
     setBusy(false);
     toast('Saqlandi ✓');
     onDone();
@@ -680,6 +709,28 @@ export function DoorBench({ onDone, edit }: { onDone: () => void; edit?: AdminLe
                     {trim.length === 0 && (
                       <div style={{ fontSize: 12, color: DANGER.text, marginTop: 8 }}>
                         Birorta qism chizilmagan — nashr qilinganda bu eshik xonaning o‘z nalichnigini olib davom etadi.
+                      </div>
+                    )}
+
+                    {trim.length > 0 && (
+                      <div style={{ marginTop: 12, paddingTop: 12, borderTop: `1px solid ${COLOR.line}` }}>
+                        <label style={{ display: 'flex', alignItems: 'center', gap: 8, minHeight: TOUCH_MIN, cursor: 'pointer' }}>
+                          <input type="checkbox" checked={alsoAddToCatalog} onChange={(e) => setAlsoAddToCatalog(e.target.checked)} />
+                          <span style={{ fontSize: 13, color: COLOR.ink }}>Bu nalichnikni «Nalichniklar» katalogiga ham qo‘shish</span>
+                        </label>
+                        <div style={{ fontSize: 12, color: COLOR.inkSoft, lineHeight: 1.5, marginTop: 4 }}>
+                          Yoqilsa, shu chizilgan nalichnik mustaqil dizayn sifatida ham
+                          saqlanadi — mijoz uni boshqa har qanday eshikda ham tanlab
+                          ko‘ra oladi, qayta suratga olish shart bo‘lmaydi.
+                        </div>
+                        {alsoAddToCatalog && (
+                          <input
+                            value={catalogTrimName}
+                            onChange={(e) => setCatalogTrimName(e.target.value)}
+                            style={{ ...inp, marginTop: 8 }}
+                            placeholder="Nalichnik nomi — masalan: Klassik oq korona"
+                          />
+                        )}
                       </div>
                     )}
                   </>
