@@ -6,7 +6,6 @@ import {
   Panel, PanelBody, PanelFooter, Label, Section, inp, AdminPrimaryButton, Handle, Pad, DANGER, useToast, ROLE_ORDER, ROLE_META, RoleChip, MoveResize,
 } from './adminKit';
 import { bboxOfPoints, seedPoints, defaultRectFor, nearestLoop, toStoredTrim, toTrimState, type TrimPieceState } from './trimGeometry';
-import { buildEdgeMap, snapToEdge, type EdgeMap } from './edgeSnap';
 import type { TrimRole } from '../catalog/types';
 
 /** Downscale an image to a compact JPEG data URL for storage/re-editing. */
@@ -27,10 +26,9 @@ const LABELS = ['Yuqori chap', 'Yuqori o‘ng', 'Past o‘ng', 'Past chap'];
  * not a door face, since no door is attached — then open a margin and trace
  * the pieces. Structurally a trimmed-down clone of DoorBench's "O'z
  * nalichnigini chizish" flow: same `rectify()` margin mechanism, same
- * point-editing tool (`trimGeometry.ts`), same magnetic snap
- * (`edgeSnap.ts`), same role chips/list chrome (`adminKit.tsx`) — everything
- * leaf-specific (colours, handle stripping, white balance, `trimRoles`)
- * simply doesn't apply here and is left out.
+ * point-editing tool (`trimGeometry.ts`), same role chips/list chrome
+ * (`adminKit.tsx`) — everything leaf-specific (colours, handle stripping,
+ * white balance, `trimRoles`) simply doesn't apply here and is left out.
  */
 export function TrimBench({ onDone, edit }: { onDone: () => void; edit?: AdminTrim }) {
   const [img, setImg] = useState<HTMLImageElement | null>(null);
@@ -45,15 +43,6 @@ export function TrimBench({ onDone, edit }: { onDone: () => void; edit?: AdminTr
   const [trim, setTrim] = useState<TrimPieceState[]>([]);
   const [activeTrimId, setActiveTrimId] = useState<string | null>(null);
   const [paddedImg, setPaddedImg] = useState<HTMLImageElement | null>(null);
-  const [edgeMap, setEdgeMap] = useState<EdgeMap | null>(null);
-  const [magnetSnap, setMagnetSnap] = useState(true);
-  useEffect(() => {
-    setEdgeMap(paddedImg ? buildEdgeMap(paddedImg) : null);
-  }, [paddedImg]);
-  const snap = useCallback(
-    (p: { x: number; y: number }, role?: TrimRole) => (role !== 'shaft' && magnetSnap && edgeMap ? snapToEdge(edgeMap, p) : p),
-    [magnetSnap, edgeMap]
-  );
 
   const wrapRef = useRef<HTMLDivElement>(null);
   const drag = useRef<number | null>(null);
@@ -153,7 +142,7 @@ export function TrimBench({ onDone, edit }: { onDone: () => void; edit?: AdminTr
   const onTrimMove = (e: React.PointerEvent) => {
     if (!trimDrag.current) return;
     const { trimId, loop, index } = trimDrag.current;
-    const p = snap(toTrimFrac(e.clientX, e.clientY), trim.find((t) => t.id === trimId)?.role);
+    const p = toTrimFrac(e.clientX, e.clientY);
     setTrim((ts) => ts.map((t) => {
       if (t.id !== trimId) return t;
       const source = t[loop] ?? [];
@@ -197,7 +186,7 @@ export function TrimBench({ onDone, edit }: { onDone: () => void; edit?: AdminTr
     if (trimDrag.current) return;
     const active = trim.find((t) => t.id === activeTrimId);
     if (!active) return;
-    const p = snap(toTrimFrac(e.clientX, e.clientY), active.role);
+    const p = toTrimFrac(e.clientX, e.clientY);
     const { loop, index: idx } = nearestLoop(active, p);
     setTrim((ts) => ts.map((t) => {
       if (t.id !== active.id) return t;
@@ -331,11 +320,6 @@ export function TrimBench({ onDone, edit }: { onDone: () => void; edit?: AdminTr
               <Section title="Nalichnikni chizish">
                 <Label>Atrofni ochish — {(margin * 100).toFixed(0)}%</Label>
                 <input type="range" min={0.03} max={0.4} step={0.01} value={margin} onChange={(e) => setMargin(+e.target.value)} style={{ width: '100%' }} />
-
-                <label style={{ display: 'flex', alignItems: 'center', gap: 8, minHeight: 44, marginTop: 4, fontSize: 12, color: COLOR.ink, cursor: 'pointer' }}>
-                  <input type="checkbox" checked={magnetSnap} onChange={(e) => setMagnetSnap(e.target.checked)} />
-                  Nuqtani chekkaga magnit bilan tortish (Korona uchun)
-                </label>
 
                 <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginTop: 10 }}>
                   {ROLE_ORDER.map((role) => {

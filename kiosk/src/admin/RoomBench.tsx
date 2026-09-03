@@ -4,7 +4,6 @@ import { processRoom, type Rect } from './roomProcess';
 import { saveRoom, type AdminRoom } from './adminStore';
 import { Panel, PanelBody, PanelFooter, Label, Section, inp, AdminPrimaryButton, Handle, DimHUD, DANGER, useToast, ROLE_ORDER, ROLE_META, RoleChip, MoveResize } from './adminKit';
 import { bboxOfPoints, seedPoints, defaultRectFor, nearestLoop, toStoredTrim, toTrimState, type Point, type TrimPieceState } from './trimGeometry';
-import { buildEdgeMap, snapToEdge, type EdgeMap } from './edgeSnap';
 import { recolorTrim } from '../render/recolor';
 import type { Tint } from '../catalog/colors';
 import type { Room, TrimPiece, TrimRole } from '../catalog/types';
@@ -129,25 +128,6 @@ export function RoomBench({ onDone, edit }: { onDone: () => void; edit?: AdminRo
   const [busy, setBusy] = useState(false);
   const toast = useToast();
 
-  // A plain edge map of the photo — click or drag a point near a real
-  // moulding line and it settles onto the line itself, the way a hand
-  // rarely lands on the exact pixel it's aiming at. Built once per photo
-  // (it doesn't depend on zoom or which piece is active), on by default,
-  // since it only ever pulls a point TOWARD a real edge and leaves it alone
-  // in flat, textureless areas. The shaft (yelka) is a plain straight board,
-  // not a moulded profile — easy to place by hand and, right next to the
-  // doorway's own strong edge, a place a magnet is more likely to fight the
-  // hand than help it — so it never snaps regardless of the toggle below.
-  const [edgeMap, setEdgeMap] = useState<EdgeMap | null>(null);
-  const [magnetSnap, setMagnetSnap] = useState(true);
-  useEffect(() => {
-    setEdgeMap(img ? buildEdgeMap(img) : null);
-  }, [img]);
-  const snap = useCallback(
-    (p: Point, role?: TrimRole) => (role !== 'shaft' && magnetSnap && edgeMap ? snapToEdge(edgeMap, p) : p),
-    [magnetSnap, edgeMap]
-  );
-
   const wrapRef = useRef<HTMLDivElement>(null);
   /** The doorway drags as a true rectangle (a real opening is one); a trim
    *  piece drags one point of its outer OR inner (hole) outline at a time,
@@ -210,14 +190,13 @@ export function RoomBench({ onDone, edit }: { onDone: () => void; edit?: AdminRo
     } else {
       const { trimId, loop, index } = d;
       const cx = Math.min(Math.max(0, p.x), 1), cy = Math.min(Math.max(0, p.y), 1);
-      const snapped = snap({ x: cx, y: cy }, trim.find((t) => t.id === trimId)?.role);
       setTrim((ts) => ts.map((t) => {
         if (t.id !== trimId) return t;
         // ONLY this one point moves — every other point of the outline stays
         // exactly where it was, which is the entire point of a free polygon
         // over a rectangle's coupled opposite-corner behaviour.
         const source = t[loop] ?? [];
-        const updated = source.map((pt, i) => (i === index ? snapped : pt));
+        const updated = source.map((pt, i) => (i === index ? { x: cx, y: cy } : pt));
         return loop === 'points' ? { ...t, points: updated, rect: bboxOfPoints(updated) } : { ...t, holePoints: updated };
       }));
     }
@@ -284,12 +263,11 @@ export function RoomBench({ onDone, edit }: { onDone: () => void; edit?: AdminRo
     if (!active) return;
     const p = toFrac(e.clientX, e.clientY);
     const cx = Math.min(Math.max(0, p.x), 1), cy = Math.min(Math.max(0, p.y), 1);
-    const snapped = snap({ x: cx, y: cy }, active.role);
-    const { loop, index: idx } = nearestLoop(active, snapped);
+    const { loop, index: idx } = nearestLoop(active, { x: cx, y: cy });
     setTrim((ts) => ts.map((t) => {
       if (t.id !== active.id) return t;
       const source = t[loop] ?? [];
-      const updated = [...source.slice(0, idx), snapped, ...source.slice(idx)];
+      const updated = [...source.slice(0, idx), { x: cx, y: cy }, ...source.slice(idx)];
       return loop === 'points' ? { ...t, points: updated, rect: bboxOfPoints(updated) } : { ...t, holePoints: updated };
     }));
     (e.target as Element).setPointerCapture(e.pointerId);
@@ -507,14 +485,6 @@ export function RoomBench({ onDone, edit }: { onDone: () => void; edit?: AdminRo
                     Ranglab ko‘rsatish
                   </label>
                 </div>
-                {/* Nuqta chekkaga o'zi tortiladi — naqshli, ko'p nuqtali
-                    joylarda (korona) qo'l bilan piksel aniqligida bosish
-                    shart bo'lmay qoladi. */}
-                <label style={{ display: 'flex', alignItems: 'center', gap: 8, minHeight: TOUCH_MIN, marginTop: 4, fontSize: 12, color: COLOR.ink, cursor: 'pointer' }}>
-                  <input type="checkbox" checked={magnetSnap} onChange={(e) => setMagnetSnap(e.target.checked)} />
-                  Nuqtani chekkaga magnit bilan tortish (Korona uchun)
-                </label>
-
                 <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginTop: 10 }}>
                   {ROLE_ORDER.map((role) => {
                     const present = trim.some((t) => t.role === role);
