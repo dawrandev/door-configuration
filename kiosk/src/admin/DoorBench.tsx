@@ -91,14 +91,17 @@ export function DoorBench({ onDone, edit }: { onDone: () => void; edit?: AdminLe
   const [paddedImg, setPaddedImg] = useState<HTMLImageElement | null>(null);
   // Same magnetic point-snap RoomBench's trim editor has, run against the
   // padded preview — rebuilt whenever that preview itself is (margin/corner
-  // changes), never per drag frame.
+  // changes), never per drag frame. The shaft (yelka) is a plain straight
+  // board right next to the door's own straight edge — easy to place by
+  // hand and a place a magnet is more likely to fight than help — so it
+  // never snaps regardless of the toggle, same rule as RoomBench.
   const [edgeMap, setEdgeMap] = useState<EdgeMap | null>(null);
   const [magnetSnap, setMagnetSnap] = useState(true);
   useEffect(() => {
     setEdgeMap(paddedImg ? buildEdgeMap(paddedImg) : null);
   }, [paddedImg]);
   const snap = useCallback(
-    (p: { x: number; y: number }) => (magnetSnap && edgeMap ? snapToEdge(edgeMap, p) : p),
+    (p: { x: number; y: number }, role?: TrimRole) => (role !== 'shaft' && magnetSnap && edgeMap ? snapToEdge(edgeMap, p) : p),
     [magnetSnap, edgeMap]
   );
 
@@ -269,8 +272,8 @@ export function DoorBench({ onDone, edit }: { onDone: () => void; edit?: AdminLe
   }, []);
   const onTrimMove = (e: React.PointerEvent) => {
     if (!trimDrag.current) return;
-    const p = snap(toTrimFrac(e.clientX, e.clientY));
     const { trimId, loop, index } = trimDrag.current;
+    const p = snap(toTrimFrac(e.clientX, e.clientY), trim.find((t) => t.id === trimId)?.role);
     setTrim((ts) => ts.map((t) => {
       if (t.id !== trimId) return t;
       const source = t[loop] ?? [];
@@ -314,7 +317,7 @@ export function DoorBench({ onDone, edit }: { onDone: () => void; edit?: AdminLe
     if (trimDrag.current) return;
     const active = trim.find((t) => t.id === activeTrimId);
     if (!active) return;
-    const p = snap(toTrimFrac(e.clientX, e.clientY));
+    const p = snap(toTrimFrac(e.clientX, e.clientY), active.role);
     const { loop, index: idx } = nearestLoop(active, p);
     setTrim((ts) => ts.map((t) => {
       if (t.id !== active.id) return t;
@@ -609,7 +612,7 @@ export function DoorBench({ onDone, edit }: { onDone: () => void; edit?: AdminLe
 
                     <label style={{ display: 'flex', alignItems: 'center', gap: 8, minHeight: TOUCH_MIN, marginTop: 4, fontSize: 12, color: COLOR.ink, cursor: 'pointer' }}>
                       <input type="checkbox" checked={magnetSnap} onChange={(e) => setMagnetSnap(e.target.checked)} />
-                      Nuqtani chekkaga magnit bilan tortish
+                      Nuqtani chekkaga magnit bilan tortish (Korona uchun)
                     </label>
 
                     <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginTop: 10 }}>

@@ -132,16 +132,19 @@ export function RoomBench({ onDone, edit }: { onDone: () => void; edit?: AdminRo
   // A plain edge map of the photo — click or drag a point near a real
   // moulding line and it settles onto the line itself, the way a hand
   // rarely lands on the exact pixel it's aiming at. Built once per photo
-  // (it doesn't depend on zoom or which piece is active), off by default
-  // preference but on by default in state, since it only ever pulls a point
-  // TOWARD a real edge and leaves it alone in flat, textureless areas.
+  // (it doesn't depend on zoom or which piece is active), on by default,
+  // since it only ever pulls a point TOWARD a real edge and leaves it alone
+  // in flat, textureless areas. The shaft (yelka) is a plain straight board,
+  // not a moulded profile — easy to place by hand and, right next to the
+  // doorway's own strong edge, a place a magnet is more likely to fight the
+  // hand than help it — so it never snaps regardless of the toggle below.
   const [edgeMap, setEdgeMap] = useState<EdgeMap | null>(null);
   const [magnetSnap, setMagnetSnap] = useState(true);
   useEffect(() => {
     setEdgeMap(img ? buildEdgeMap(img) : null);
   }, [img]);
   const snap = useCallback(
-    (p: Point) => (magnetSnap && edgeMap ? snapToEdge(edgeMap, p) : p),
+    (p: Point, role?: TrimRole) => (role !== 'shaft' && magnetSnap && edgeMap ? snapToEdge(edgeMap, p) : p),
     [magnetSnap, edgeMap]
   );
 
@@ -207,7 +210,7 @@ export function RoomBench({ onDone, edit }: { onDone: () => void; edit?: AdminRo
     } else {
       const { trimId, loop, index } = d;
       const cx = Math.min(Math.max(0, p.x), 1), cy = Math.min(Math.max(0, p.y), 1);
-      const snapped = snap({ x: cx, y: cy });
+      const snapped = snap({ x: cx, y: cy }, trim.find((t) => t.id === trimId)?.role);
       setTrim((ts) => ts.map((t) => {
         if (t.id !== trimId) return t;
         // ONLY this one point moves — every other point of the outline stays
@@ -281,7 +284,7 @@ export function RoomBench({ onDone, edit }: { onDone: () => void; edit?: AdminRo
     if (!active) return;
     const p = toFrac(e.clientX, e.clientY);
     const cx = Math.min(Math.max(0, p.x), 1), cy = Math.min(Math.max(0, p.y), 1);
-    const snapped = snap({ x: cx, y: cy });
+    const snapped = snap({ x: cx, y: cy }, active.role);
     const { loop, index: idx } = nearestLoop(active, snapped);
     setTrim((ts) => ts.map((t) => {
       if (t.id !== active.id) return t;
@@ -509,7 +512,7 @@ export function RoomBench({ onDone, edit }: { onDone: () => void; edit?: AdminRo
                     shart bo'lmay qoladi. */}
                 <label style={{ display: 'flex', alignItems: 'center', gap: 8, minHeight: TOUCH_MIN, marginTop: 4, fontSize: 12, color: COLOR.ink, cursor: 'pointer' }}>
                   <input type="checkbox" checked={magnetSnap} onChange={(e) => setMagnetSnap(e.target.checked)} />
-                  Nuqtani chekkaga magnit bilan tortish
+                  Nuqtani chekkaga magnit bilan tortish (Korona uchun)
                 </label>
 
                 <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginTop: 10 }}>

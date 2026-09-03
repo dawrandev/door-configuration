@@ -18,10 +18,14 @@ import type { TrimRole } from '../catalog/types';
  *  a "stop" colour, kept in the same family instead of a jarring foreign hue. */
 export const DANGER = { text: '#A6432C', border: 'rgba(166,67,44,.35)', bg: 'rgba(166,67,44,.07)' };
 
-/** Every trim-piece role, in the order they're offered — shared between
+/** Every trim-piece role OFFERED for a new piece, in order — shared between
  *  RoomBench (marking which pieces a room's architrave actually has) and
- *  DoorBench (marking which of those a given door comes with). */
-export const ROLE_ORDER: TrimRole[] = ['shaft', 'crown', 'footL', 'footR'];
+ *  DoorBench (marking which of those a given door comes with, and tracing
+ *  its own). `footL`/`footR` stay valid TrimRole values (older, already-
+ *  published rooms keep whatever foot pieces they were measured with — see
+ *  `ROLE_META` below) but are no longer offered for a NEW piece; this shop's
+ *  own doors don't use them. */
+export const ROLE_ORDER: TrimRole[] = ['shaft', 'crown'];
 /** Muted, editorial tones — not neon — so the box outlines and their row
  *  swatches sit comfortably in the same warm, printed-catalogue palette as
  *  the rest of the bench, while staying five clearly distinct hues. */
