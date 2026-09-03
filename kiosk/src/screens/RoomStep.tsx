@@ -1,6 +1,6 @@
 import { COLOR, RADIUS, RADIUS_SM, TYPE } from '../design/tokens';
 import { T, tr } from '../i18n/strings';
-import { useKiosk } from '../store/useKiosk';
+import { useKiosk, stepLabel } from '../store/useKiosk';
 import { Ornament } from '../ui/Ornament';
 import { PrimaryButton, StepHeader, TopBar } from '../ui/controls';
 
@@ -18,6 +18,7 @@ export function RoomStep() {
   const lang = useKiosk((s) => s.lang);
   const roomId = useKiosk((s) => s.roomId);
   const ROOMS = useKiosk((s) => s.rooms);
+  const hasTrim = useKiosk((s) => s.trims.length > 0);
   const setRoom = useKiosk((s) => s.setRoom);
   const cycleLang = useKiosk((s) => s.cycleLang);
   const back = useKiosk((s) => s.back);
@@ -30,7 +31,7 @@ export function RoomStep() {
       </div>
 
       <div style={{ padding: 'clamp(24px, 3vw, 36px) clamp(24px, 4vw, 56px) 0' }}>
-        <StepHeader kicker={tr(T.step, lang)} step="01 / 04" title={tr(T.step1, lang)} />
+        <StepHeader kicker={tr(T.step, lang)} step={stepLabel('room', hasTrim)} title={tr(T.step1, lang)} />
       </div>
 
       <div className="scr" style={{ flex: 1, overflowY: 'auto', padding: 'clamp(24px, 3vw, 34px) clamp(24px, 4vw, 56px) 140px' }}>

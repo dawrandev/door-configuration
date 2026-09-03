@@ -43,6 +43,7 @@ export const T = {
 
   step1: { uz: 'Xonangizni tanlang', kk: 'Bólmeńizdi saylań', ru: 'Выберите комнату' },
   step2: { uz: 'Eshigingizni tanlang', kk: 'Esikti saylań', ru: 'Выберите дверь' },
+  steptrim: { uz: 'Nalichnik va koronani tanlang', kk: 'Naličnik hám koronanı saylań', ru: 'Выберите наличник и корону' },
   step2c: { uz: 'Eshik rangini tanlang', kk: 'Esik reńin saylań', ru: 'Выберите цвет двери' },
   step3: { uz: 'Eshigingizni sozlang', kk: 'Esikti sazlań', ru: 'Настройте дверь' },
   sumt: { uz: "Yakuniy ko'rinish", kk: 'Juwmaqlaw', ru: 'Итог' },
@@ -50,6 +51,7 @@ export const T = {
   color: { uz: 'Rang', kk: 'Reń', ru: 'Цвет' },
   trim: { uz: 'Nalichnik va korona', kk: 'Naličnik hám korona', ru: 'Наличник и корона' },
   trimsame: { uz: 'Eshik rangida', kk: 'Esik reńinde', ru: 'В цвет двери' },
+  trimdefault: { uz: 'Standart', kk: 'Standart', ru: 'Стандартный' },
   colornote: {
     uz: 'Nalichnik va korona standart holatda eshik rangida — lekin xohlasangiz, yuqorida ularni alohida rangga o‘zgartirishingiz mumkin.',
     kk: 'Naličnik hám korona standart halda esik reńinde — biraq qáleseńiz, joqarıda olardı bólek reńge ózgertiwińiz múmkin.',
