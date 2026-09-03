@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import type { Leaf, Room, TrimPiece } from '../catalog/types';
+import type { Leaf, Room, TrimModel, TrimPiece } from '../catalog/types';
 import type { Tint } from '../catalog/colors';
 
 /**
@@ -368,6 +368,16 @@ export function recolorTrim(room: Room, tint: Tint): Promise<string | null> {
 export function recolorLeafTrim(leaf: Leaf, tint: Tint): Promise<string | null> {
   if (!leaf.trimSource || !leaf.trimBoxes || !leaf.trimBoxes.length) return Promise.resolve(null);
   return recolorTrimFrom(leaf.id, leaf.trimSource, leaf.trimBoxes, tint);
+}
+
+/**
+ * A nalichnik/korona DESIGN the customer picked independently — see
+ * `TrimModel`. Takes priority over a door's own trim and a room's alike
+ * (see `WallStage.tsx`); rendered exactly the same way, just sourced from
+ * an independent catalog entry instead of a leaf.
+ */
+export function recolorTrimModel(model: TrimModel, tint: Tint): Promise<string | null> {
+  return recolorTrimFrom(model.id, model.trimSource, model.trimBoxes, tint);
 }
 
 /**

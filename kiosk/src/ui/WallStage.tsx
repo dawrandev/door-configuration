@@ -1,9 +1,9 @@
 import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { useKiosk } from '../store/useKiosk';
 import { HANDLE_PLACE, HANDLES } from '../catalog/handles.generated';
-import { tintFor, TRIM_SAME, type Tint } from '../catalog/colors';
-import { recolorTrim, recolorLeaf, recolorLeafTrim, useRender } from '../render/recolor';
-import type { Leaf } from '../catalog/types';
+import { tintFor, TRIM_SAME, TRIM_DEFAULT, type Tint } from '../catalog/colors';
+import { recolorTrim, recolorLeaf, recolorLeafTrim, recolorTrimModel, useRender } from '../render/recolor';
+import type { Leaf, TrimModel } from '../catalog/types';
 import { useElementSize } from './useElementSize';
 
 /** One handle, in black — the finish every door was photographed with. */
@@ -33,6 +33,8 @@ export function WallStage({ onSwipe, children }: { onSwipe?: (delta: number) => 
   const leafId = useKiosk((s) => s.leafId);
   const colorId = useKiosk((s) => s.colorId);
   const trimColorId = useKiosk((s) => s.trimColorId);
+  const trimModelId = useKiosk((s) => s.trimModelId);
+  const trims = useKiosk((s) => s.trims);
   const leaves = useKiosk((s) => s.leaves);
   const rooms = useKiosk((s) => s.rooms);
   const colors = useKiosk((s) => s.colors);
@@ -80,11 +82,18 @@ export function WallStage({ onSwipe, children }: { onSwipe?: (delta: number) => 
     return { ...room, trimBoxes };
   }, [room, leaf.trimRoles]);
 
-  // A door that traced its own casing replaces the room's entirely — showing
-  // both at once would read as two different casings overlapping. Skipping
-  // the room-trim render for it (rather than just hiding the layer) also
-  // avoids deriving a paint no one will see.
-  const hasOwnTrim = !!(leaf.trimSource && leaf.trimBoxes?.length);
+  // Which trim actually shows, priority customer pick > door's own > room's
+  // — resolved ONCE here and handed to DoorLayer, so both this component's
+  // own room-trim suppression and DoorLayer's render agree on the same
+  // answer. An id not in `trims` (stale, removed at the bench) resolves to
+  // undefined exactly like TRIM_DEFAULT — nothing to clear on navigation.
+  const trimModel = trimModelId !== TRIM_DEFAULT ? trims.find((t) => t.id === trimModelId) : undefined;
+
+  // A door's own casing, or a customer-picked design, replaces the room's
+  // entirely — showing more than one at once would read as different
+  // casings overlapping. Skipping the room-trim render for it (rather than
+  // just hiding the layer) also avoids deriving a paint no one will see.
+  const hasOwnTrim = !!(trimModel || (leaf.trimSource && leaf.trimBoxes?.length));
   const trimUrl = useRender(
     () => (trimPaint && !hasOwnTrim ? recolorTrim(trimRoom, trimPaint) : Promise.resolve(null)),
     '',
@@ -149,7 +158,7 @@ export function WallStage({ onSwipe, children }: { onSwipe?: (delta: number) => 
       />
 
       {width > 0 && layers.map((l, i) => (
-        <DoorLayer key={l.key} leaf={l.leaf} paint={paint} paintKey={colorId} trimPaint={trimPaint} geom={geom} lightTint={lightTint} fade={i === layers.length - 1 && layers.length > 1} />
+        <DoorLayer key={l.key} leaf={l.leaf} paint={paint} paintKey={colorId} trimPaint={trimPaint} trimModel={trimModel} geom={geom} lightTint={lightTint} fade={i === layers.length - 1 && layers.length > 1} />
       ))}
       {children}
     </div>
@@ -165,7 +174,7 @@ export function WallStage({ onSwipe, children }: { onSwipe?: (delta: number) => 
  * shouts louder than the width difference it avoids. A door and its opening are
  * made for each other in reality, so filling is the honest composite.
  */
-function DoorLayer({ leaf, paint, paintKey, trimPaint, geom, lightTint, fade }: { leaf: Leaf; paint: Tint | null; paintKey: string; trimPaint: Tint | null; geom: { ox: number; oy: number; ow: number; oh: number }; lightTint: string; fade: boolean }) {
+function DoorLayer({ leaf, paint, paintKey, trimPaint, trimModel, geom, lightTint, fade }: { leaf: Leaf; paint: Tint | null; paintKey: string; trimPaint: Tint | null; trimModel?: TrimModel; geom: { ox: number; oy: number; ow: number; oh: number }; lightTint: string; fade: boolean }) {
   const { ox, oy, ow, oh } = geom;
   const [op, setOp] = useState(fade ? 0 : 1);
   useEffect(() => {
@@ -177,14 +186,19 @@ function DoorLayer({ leaf, paint, paintKey, trimPaint, geom, lightTint, fade }: 
   // quieter than a frame of nothing.
   const url = useRender(() => (paint ? recolorLeaf(leaf, paint) : Promise.resolve(leaf.image)), leaf.image, [leaf, paintKey]);
 
-  // A door that traced its own casing (see DoorBench's "O'z nalichnigini
-  // chizish") carries it right on the leaf — rendered here, inside the same
-  // fading layer as the leaf itself, so the two cross over together.
-  const ownTrim = leaf.trimMargin && leaf.trimSource && leaf.trimBoxes?.length ? leaf.trimMargin : null;
+  // Priority: a customer-picked design (independent of this door) > the
+  // door's own traced casing (DoorBench's "O'z nalichnigini chizish") — both
+  // carried right here, inside the same fading layer as the leaf itself, so
+  // whichever is active crosses over together with the leaf.
+  const ownMargin = trimModel
+    ? trimModel.trimMargin
+    : leaf.trimMargin && leaf.trimSource && leaf.trimBoxes?.length
+      ? leaf.trimMargin
+      : null;
   const trimUrl = useRender(
-    () => (ownTrim && trimPaint ? recolorLeafTrim(leaf, trimPaint) : Promise.resolve(null)),
+    () => (ownMargin && trimPaint ? (trimModel ? recolorTrimModel(trimModel, trimPaint) : recolorLeafTrim(leaf, trimPaint)) : Promise.resolve(null)),
     '',
-    [leaf, trimPaint]
+    [leaf, trimModel, trimPaint]
   );
 
   const handle =
@@ -205,21 +219,22 @@ function DoorLayer({ leaf, paint, paintKey, trimPaint, geom, lightTint, fade }: 
 
   return (
     <div style={{ position: 'absolute', left: ox, top: oy, width: ow, height: oh, opacity: op, transition: `opacity 340ms ${EASE}`, willChange: 'opacity' }}>
-      {/* The door's own trim, when it has one — sized off the SAME ow/oh the
-          leaf itself uses, expanded by its own margin on each side, and
-          BEHIND the leaf so the leaf's own edge still covers the casing's
-          inner lip exactly like a room's trim does. */}
-      {ownTrim && trimUrl && (
+      {/* The active trim — a customer's own pick, or else the door's own —
+          sized off the SAME ow/oh the leaf itself uses, expanded by its own
+          margin on each side, and BEHIND the leaf so the leaf's own edge
+          still covers the casing's inner lip exactly like a room's trim
+          does. */}
+      {ownMargin && trimUrl && (
         <img
           src={trimUrl}
           alt=""
           draggable={false}
           style={{
             position: 'absolute',
-            left: -ownTrim.left * ow,
-            top: -ownTrim.top * oh,
-            width: ow * (1 + ownTrim.left + ownTrim.right),
-            height: oh * (1 + ownTrim.top + ownTrim.bottom),
+            left: -ownMargin.left * ow,
+            top: -ownMargin.top * oh,
+            width: ow * (1 + ownMargin.left + ownMargin.right),
+            height: oh * (1 + ownMargin.top + ownMargin.bottom),
             pointerEvents: 'none',
           }}
         />
