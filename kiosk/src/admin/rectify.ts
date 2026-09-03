@@ -110,17 +110,36 @@ export function rectify(img: HTMLImageElement | HTMLCanvasElement, corners: [Pt,
   const PW = X0 + OW + Math.round(margin.right * OW);
   const PH = Y0 + OH + Math.round(margin.bottom * OH);
 
+  // The homography is only well-behaved near the quad it was solved from —
+  // `d` (its projective denominator) can shrink toward zero, or even flip
+  // sign, once X/Y are extrapolated far enough past it, sending sx/sy to
+  // wild or flipped-side values. `d` at the leaf's own 4 corners sets the
+  // scale of what "well-behaved" looks like for THIS particular photo angle;
+  // once a margin pixel's own d drops well below that, the maths has left
+  // solid ground. Never checked inside the leaf's own [0,OW]x[0,OH] — the
+  // margin=0 call stays pixel-identical to before this existed.
+  const cornerDs = [[0, 0], [OW, 0], [OW, OH], [0, OH]].map(([X, Y]) => h[6] * X + h[7] * Y + 1);
+  const dFloor = Math.max(0.05, Math.min(...cornerDs) * 0.25);
+
   const out = new ImageData(PW, PH);
   for (let PY = 0; PY < PH; PY++) {
     const Y = PY - Y0;
+    const inLeafY = PY >= Y0 && PY < Y0 + OH;
     for (let PX = 0; PX < PW; PX++) {
       const X = PX - X0;
+      const o = (PY * PW + PX) * 4;
+      const inLeaf = inLeafY && PX >= X0 && PX < X0 + OW;
       const d = h[6] * X + h[7] * Y + 1;
+      if (!inLeaf && d < dFloor) continue; // stays transparent — the maths broke down out here, not real casing
       const sx = (h[0] * X + h[1] * Y + h[2]) / d;
       const sy = (h[3] * X + h[4] * Y + h[5]) / d;
+      // Past the edge of what the camera actually captured, clamping would
+      // silently repeat the boundary pixel — reading as real casing that
+      // was never photographed. Left transparent instead, so a margin
+      // wider than the photo shows honestly ends, rather than lying.
+      if (!inLeaf && (sx < 0 || sx > SW - 1 || sy < 0 || sy > SH - 1)) continue;
       const xi = Math.floor(sx), yi = Math.floor(sy);
       const fx = sx - xi, fy = sy - yi;
-      const o = (PY * PW + PX) * 4;
       for (let c = 0; c < 3; c++) {
         out.data[o + c] =
           sample(xi, yi, c) * (1 - fx) * (1 - fy) +
