@@ -2,14 +2,17 @@ import { useEffect, useState } from 'react';
 import { COLOR, FONT, RADIUS, RADIUS_SM, TOUCH_MIN, TYPE } from '../design/tokens';
 import { LEAVES as BASE_LEAVES } from '../catalog/leaves.generated';
 import { ROOMS as BASE_ROOMS } from '../catalog/rooms.generated';
-import type { Leaf, Room } from '../catalog/types';
+import { TRIMS as BASE_TRIMS } from '../catalog/trims.generated';
+import type { Leaf, Room, TrimModel } from '../catalog/types';
 import { DoorBench } from './DoorBench';
 import { RoomBench } from './RoomBench';
+import { TrimBench } from './TrimBench';
 import { Masthead, ToastHost, ConfirmBar, DANGER, AdminGhostButton, AdminPrimaryButton, useToast } from './adminKit';
 import {
-  mergeLeaves, mergeRooms, editLeaf, editRoom, removeLeaf, removeRoom, restoreLeaf, restoreRoom,
-  loadLeafEdits, loadRoomEdits, isBuiltIn, isOverridden, isRoomOverridden,
-  type AdminLeaf, type AdminRoom,
+  mergeLeaves, mergeRooms, mergeTrims, editLeaf, editRoom, editTrim, removeLeaf, removeRoom, removeTrimModel,
+  restoreLeaf, restoreRoom, restoreTrimModel,
+  loadLeafEdits, loadRoomEdits, loadTrimEdits, isBuiltIn, isOverridden, isRoomOverridden, isTrimOverridden,
+  type AdminLeaf, type AdminRoom, type AdminTrim,
 } from './adminStore';
 
 /**
@@ -26,13 +29,16 @@ import {
  * unrelated dark "developer" theme here read as a different, unfinished
  * product bolted on. One brand, one bench.
  */
-type Tab = 'doors' | 'rooms';
+type Tab = 'doors' | 'rooms' | 'trims';
+const TAB_LABEL: Record<Tab, string> = { doors: 'Eshiklar', rooms: 'Xonalar', trims: 'Nalichniklar' };
+const TAB_ADD_LABEL: Record<Tab, string> = { doors: 'Yangi eshik', rooms: 'Yangi xona', trims: 'Yangi nalichnik' };
 
 export function Admin() {
   const [tab, setTab] = useState<Tab>('doors');
   const [adding, setAdding] = useState(false);
   const [editLeafItem, setEditLeafItem] = useState<AdminLeaf | null>(null);
   const [editRoomItem, setEditRoomItem] = useState<AdminRoom | null>(null);
+  const [editTrimItem, setEditTrimItem] = useState<AdminTrim | null>(null);
   const [query, setQuery] = useState('');
   const [, force] = useState(0);
   useEffect(() => {
@@ -41,22 +47,27 @@ export function Admin() {
     return () => window.removeEventListener('dc-catalog-changed', r);
   }, []);
 
-  const closeBench = () => { setAdding(false); setEditLeafItem(null); setEditRoomItem(null); };
+  const closeBench = () => { setAdding(false); setEditLeafItem(null); setEditRoomItem(null); setEditTrimItem(null); };
   if (editLeafItem) return <Shell onDone={closeBench}><DoorBench edit={editLeafItem} onDone={closeBench} /></Shell>;
   if (editRoomItem) return <Shell onDone={closeBench}><RoomBench edit={editRoomItem} onDone={closeBench} /></Shell>;
+  if (editTrimItem) return <Shell onDone={closeBench}><TrimBench edit={editTrimItem} onDone={closeBench} /></Shell>;
   if (adding && tab === 'doors') return <Shell onDone={closeBench}><DoorBench onDone={closeBench} /></Shell>;
   if (adding && tab === 'rooms') return <Shell onDone={closeBench}><RoomBench onDone={closeBench} /></Shell>;
+  if (adding && tab === 'trims') return <Shell onDone={closeBench}><TrimBench onDone={closeBench} /></Shell>;
 
   const leaves = mergeLeaves(BASE_LEAVES);
   const rooms = mergeRooms(BASE_ROOMS);
+  const trims = mergeTrims(BASE_TRIMS);
   const hiddenLeaves = Object.entries(loadLeafEdits()).filter(([, e]) => e.hidden).map(([id]) => id);
   const hiddenRooms = Object.entries(loadRoomEdits()).filter(([, e]) => e.hidden).map(([id]) => id);
+  const hiddenTrims = Object.entries(loadTrimEdits()).filter(([, e]) => e.hidden).map(([id]) => id);
 
   const q = query.trim().toLowerCase();
   const shownLeaves = q ? leaves.filter((l) => l.name.uz.toLowerCase().includes(q)) : leaves;
   const shownRooms = q ? rooms.filter((r) => r.name.uz.toLowerCase().includes(q)) : rooms;
+  const shownTrims = q ? trims.filter((t) => t.name.uz.toLowerCase().includes(q)) : trims;
 
-  const recent = mostRecent([...leaves, ...rooms]);
+  const recent = mostRecent([...leaves, ...rooms, ...trims]);
 
   return (
     <Shell>
@@ -64,14 +75,17 @@ export function Admin() {
         <Stats
           doorCount={leaves.length}
           roomCount={rooms.length}
-          hiddenCount={hiddenLeaves.length + hiddenRooms.length}
+          trimCount={trims.length}
+          hiddenCount={hiddenLeaves.length + hiddenRooms.length + hiddenTrims.length}
           recentName={recent?.name.uz}
         />
 
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8, flexWrap: 'wrap', gap: 14 }}>
           <div style={{ display: 'flex', gap: 4, background: COLOR.panel, border: `1px solid ${COLOR.line}`, borderRadius: 999, padding: 4 }}>
-            {(['doors', 'rooms'] as Tab[]).map((t) => (
-              <button key={t} onClick={() => setTab(t)} style={pill(tab === t)}>{t === 'doors' ? `Eshiklar (${leaves.length})` : `Xonalar (${rooms.length})`}</button>
+            {(['doors', 'rooms', 'trims'] as Tab[]).map((t) => (
+              <button key={t} onClick={() => setTab(t)} style={pill(tab === t)}>
+                {TAB_LABEL[t]} ({t === 'doors' ? leaves.length : t === 'rooms' ? rooms.length : trims.length})
+              </button>
             ))}
           </div>
           <div style={{ display: 'flex', gap: 10, alignItems: 'center', flex: '1 1 240px', maxWidth: 420 }}>
@@ -82,7 +96,7 @@ export function Admin() {
               style={{ ...searchInput, flex: 1 }}
             />
             <AdminPrimaryButton onClick={() => setAdding(true)} style={{ width: 'auto', whiteSpace: 'nowrap', padding: '0 20px' }}>
-              + {tab === 'doors' ? 'Yangi eshik' : 'Yangi xona'}
+              + {TAB_ADD_LABEL[tab]}
             </AdminPrimaryButton>
           </div>
         </div>
@@ -90,7 +104,9 @@ export function Admin() {
         <div style={{ ...TYPE.small, color: COLOR.inkSoft, marginBottom: 22 }}>
           {tab === 'doors'
             ? 'Eshikning shakli (4 burchak) va u sotiladigan ranglar shu yerda belgilanadi.'
-            : 'Devor fotosurati, eshik teshigi va nalichnik (uning ranglanadigan qismlari) shu yerda belgilanadi.'}
+            : tab === 'rooms'
+              ? 'Devor fotosurati, eshik teshigi va nalichnik (uning ranglanadigan qismlari) shu yerda belgilanadi.'
+              : 'Mustaqil nalichnik/korona dizayni — mijoz buni istalgan xona va eshikda tanlab ko‘ra oladi.'}
         </div>
 
         {tab === 'doors' ? (
@@ -106,12 +122,21 @@ export function Admin() {
               {!q && hiddenLeaves.map((id) => <HiddenCard key={id} label={BASE_LEAVES.find((l) => l.id === id)?.name.uz ?? id} onRestore={() => restoreLeaf(id)} />)}
             </Grid>
           )
-        ) : shownRooms.length === 0 && (q || hiddenRooms.length === 0) ? (
-          <EmptyState label={q ? 'Shu nomda xona topilmadi' : 'Hozircha xonalar yo‘q — yuqoridagi tugma bilan qo‘shing'} />
+        ) : tab === 'rooms' ? (
+          shownRooms.length === 0 && (q || hiddenRooms.length === 0) ? (
+            <EmptyState label={q ? 'Shu nomda xona topilmadi' : 'Hozircha xonalar yo‘q — yuqoridagi tugma bilan qo‘shing'} />
+          ) : (
+            <Grid>
+              {shownRooms.map((r) => <RoomCard key={r.id} room={r} onEdit={() => setEditRoomItem(r as AdminRoom)} />)}
+              {!q && hiddenRooms.map((id) => <HiddenCard key={id} label={BASE_ROOMS.find((r) => r.id === id)?.name.uz ?? id} onRestore={() => restoreRoom(id)} />)}
+            </Grid>
+          )
+        ) : shownTrims.length === 0 && (q || hiddenTrims.length === 0) ? (
+          <EmptyState label={q ? 'Shu nomda nalichnik topilmadi' : 'Hozircha nalichnik dizaynlari yo‘q — yuqoridagi tugma bilan qo‘shing'} />
         ) : (
           <Grid>
-            {shownRooms.map((r) => <RoomCard key={r.id} room={r} onEdit={() => setEditRoomItem(r as AdminRoom)} />)}
-            {!q && hiddenRooms.map((id) => <HiddenCard key={id} label={BASE_ROOMS.find((r) => r.id === id)?.name.uz ?? id} onRestore={() => restoreRoom(id)} />)}
+            {shownTrims.map((t) => <TrimCard key={t.id} trim={t} onEdit={() => setEditTrimItem(t as AdminTrim)} />)}
+            {!q && hiddenTrims.map((id) => <HiddenCard key={id} label={BASE_TRIMS.find((t) => t.id === id)?.name.uz ?? id} onRestore={() => restoreTrimModel(id)} />)}
           </Grid>
         )}
       </div>
@@ -119,19 +144,20 @@ export function Admin() {
   );
 }
 
-/** The most recently created/re-cut item, across doors and rooms — only
- *  bench-touched items carry a `createdAt`, so a stock built-in never wins
- *  this even though it's structurally the same shape. */
-function mostRecent(items: (Leaf | Room)[]): (Leaf | Room) | null {
-  const dated = items.filter((i): i is (Leaf | Room) & { createdAt: number } => typeof (i as AdminLeaf | AdminRoom).createdAt === 'number');
+/** The most recently created/re-cut item, across doors, rooms and trims —
+ *  only bench-touched items carry a `createdAt`, so a stock built-in never
+ *  wins this even though it's structurally the same shape. */
+function mostRecent(items: (Leaf | Room | TrimModel)[]): (Leaf | Room | TrimModel) | null {
+  const dated = items.filter((i): i is (Leaf | Room | TrimModel) & { createdAt: number } => typeof (i as AdminLeaf | AdminRoom | AdminTrim).createdAt === 'number');
   if (!dated.length) return null;
   return dated.reduce((a, b) => (b.createdAt > a.createdAt ? b : a));
 }
 
-function Stats({ doorCount, roomCount, hiddenCount, recentName }: { doorCount: number; roomCount: number; hiddenCount: number; recentName?: string }) {
+function Stats({ doorCount, roomCount, trimCount, hiddenCount, recentName }: { doorCount: number; roomCount: number; trimCount: number; hiddenCount: number; recentName?: string }) {
   const tiles: { label: string; value: string }[] = [
     { label: 'Eshiklar', value: String(doorCount) },
     { label: 'Xonalar', value: String(roomCount) },
+    { label: 'Nalichniklar', value: String(trimCount) },
     { label: 'Yashiringan', value: String(hiddenCount) },
     { label: 'So‘nggi qo‘shilgan', value: recentName ?? '—' },
   ];
@@ -183,6 +209,25 @@ function RoomCard({ room, onEdit }: { room: Room; onEdit: () => void }) {
       <input value={name} onChange={(e) => setName(e.target.value)} onBlur={() => name !== room.name.uz && editRoom(room.id, { name })} style={cardInput} />
       <div style={{ ...TYPE.label, fontSize: 10, color: COLOR.inkSoft, marginTop: 6 }}>{trimNote}</div>
       <DeleteRow onEdit={canReedit ? onEdit : undefined} onDelete={() => removeRoom(room.id)} kind={overridden ? 'restore' : 'delete'} itemName={room.name.uz} />
+    </Card>
+  );
+}
+
+function TrimCard({ trim, onEdit }: { trim: TrimModel; onEdit: () => void }) {
+  const [name, setName] = useState(trim.name.uz);
+  const builtIn = isBuiltIn(trim.id);
+  const overridden = isTrimOverridden(trim.id);
+  const canReedit = !!(trim as AdminTrim).source || !builtIn;
+  const pieceNote = `${trim.trimBoxes.length} ta qism`;
+  return (
+    <Card>
+      <div style={{ aspectRatio: THUMB_RATIO, background: COLOR.paper, borderRadius: RADIUS_SM, overflow: 'hidden', position: 'relative' }}>
+        <img src={trim.trimSource} alt="" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+        {builtIn ? <span style={badge}>{overridden ? 'tahrirlangan' : 'tayyor'}</span> : <span style={badgeAdded}>qo‘shilgan</span>}
+      </div>
+      <input value={name} onChange={(e) => setName(e.target.value)} onBlur={() => name !== trim.name.uz && editTrim(trim.id, { name })} style={cardInput} />
+      <div style={{ ...TYPE.label, fontSize: 10, color: COLOR.inkSoft, marginTop: 6 }}>{pieceNote}</div>
+      <DeleteRow onEdit={canReedit ? onEdit : undefined} onDelete={() => removeTrimModel(trim.id)} kind={overridden ? 'restore' : 'delete'} itemName={trim.name.uz} />
     </Card>
   );
 }
