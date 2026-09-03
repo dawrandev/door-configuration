@@ -8,6 +8,10 @@
 # commit, force-pushed fresh each time, so main's history never carries
 # 20MB+ build artifacts.
 #
+# NOTE: this is now the MANUAL fallback. .github/workflows/deploy.yml does the
+# same three steps automatically on every push to main; run this script only
+# when you need to deploy without going through GitHub Actions.
+#
 # One-time setup on the server (over SSH):
 #   cd /var/www/dawran/data/www/dawran.dbc-server.uz
 #   git clone -b deploy --single-branch https://github.com/dawrandev/door-configuration.git door

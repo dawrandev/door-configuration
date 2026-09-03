@@ -1,0 +1,105 @@
+name: Build & Deploy
+
+# Automates what deploy.sh + server-deploy.sh used to do by hand:
+#   1. build the kiosk app,
+#   2. force-push ONLY the build output to the "deploy" branch,
+#   3. SSH into the server and make it fast-forward to that branch.
+#
+# main's history therefore never carries build artifacts, exactly like before.
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'kiosk/**'
+      - 'server-deploy.sh'
+      - '.github/workflows/deploy.yml'
+  workflow_dispatch:        # lets you re-deploy from the Actions tab by hand
+
+# Never let two deploys race each other onto the same branch/server.
+concurrency:
+  group: deploy-production
+  cancel-in-progress: false
+
+env:
+  BASE_PATH: /door/         # sub-path under the domain (must end with /)
+  DEPLOY_BRANCH: deploy
+
+jobs:
+  build-and-deploy:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write       # needed to force-push the deploy branch
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: npm
+          cache-dependency-path: kiosk/package-lock.json
+
+      - name: Install dependencies
+        working-directory: kiosk
+        # Playwright/sharp are only used by the offline tools/ scripts, so skip
+        # the ~400MB browser download the playwright postinstall would trigger.
+        env:
+          PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD: '1'
+        run: npm ci
+
+      - name: Lint
+        working-directory: kiosk
+        run: npm run lint
+
+      - name: Build
+        working-directory: kiosk
+        run: npx tsc -b && npx vite build --base="$BASE_PATH"
+
+      - name: Publish build output to the '${{ env.DEPLOY_BRANCH }}' branch
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          # A throwaway repo holding one rolling commit: the deploy branch is
+          # force-pushed fresh every run, so it never accumulates history.
+          rm -rf .deploy-out
+          mkdir .deploy-out
+          cp -r kiosk/dist/. .deploy-out/
+          cp server-deploy.sh .deploy-out/
+          cd .deploy-out
+          git init -q -b "$DEPLOY_BRANCH"
+          git config user.email "actions@github.com"
+          git config user.name "github-actions[bot]"
+          git add -A
+          git commit -qm "deploy: ${GITHUB_SHA::7} ($(date -u +%Y-%m-%dT%H:%M:%SZ))"
+          git push --force \
+            "https://x-access-token:${GITHUB_TOKEN}@github.com/${GITHUB_REPOSITORY}.git" \
+            "HEAD:$DEPLOY_BRANCH"
+
+      - name: Deploy on the server over SSH
+        env:
+          SSH_HOST: ${{ secrets.SSH_HOST }}
+          SSH_USER: ${{ secrets.SSH_USER }}
+          SSH_PORT: ${{ secrets.SSH_PORT || '22' }}
+          SSH_KEY: ${{ secrets.SSH_KEY }}
+          DEPLOY_PATH: ${{ secrets.DEPLOY_PATH }}
+          SSH_KNOWN_HOSTS: ${{ secrets.SSH_KNOWN_HOSTS }}
+        run: |
+          set -euo pipefail
+          mkdir -p ~/.ssh
+          chmod 700 ~/.ssh
+          printf '%s\n' "$SSH_KEY" > ~/.ssh/deploy_key
+          chmod 600 ~/.ssh/deploy_key
+          # Pin the host key when SSH_KNOWN_HOSTS is set; otherwise trust the
+          # key the server presents on first contact (ssh-keyscan).
+          if [ -n "$SSH_KNOWN_HOSTS" ]; then
+            printf '%s\n' "$SSH_KNOWN_HOSTS" > ~/.ssh/known_hosts
+          else
+            ssh-keyscan -p "$SSH_PORT" -H "$SSH_HOST" >> ~/.ssh/known_hosts 2>/dev/null
+          fi
+          chmod 600 ~/.ssh/known_hosts
+          ssh -i ~/.ssh/deploy_key -p "$SSH_PORT" "$SSH_USER@$SSH_HOST" \
+            "cd '$DEPLOY_PATH' && bash server-deploy.sh"
