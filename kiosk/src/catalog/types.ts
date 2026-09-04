@@ -188,27 +188,6 @@ export interface Leaf {
    * it always applies, since there's nothing to match it against.
    */
   trimRoles?: TrimRole[];
-  /**
-   * A door's OWN nalichnik/korona, traced on its own photograph — for a
-   * door that was shot already standing in its matching casing, not just
-   * relying on whichever room it's later placed against. Undefined (every
-   * door before this) falls straight through to the room's own trim +
-   * `trimRoles` filter above; present, it REPLACES the room's trim entirely
-   * for this door (showing both at once would read as two different
-   * casings overlapping).
-   *
-   * `trimSource` is a padded, already-rectified (flat, perspective-
-   * corrected) crop of the original photo — wider than the leaf itself by
-   * `trimMargin` on each side, the same homography that squares up the
-   * leaf extended a little further out so it also catches whatever casing
-   * the photo actually shows around the door. `trimBoxes` is measured in
-   * fractions of THAT padded canvas, not the leaf's own tight crop
-   * (`image`) or the raw upload (`source`) — marking trim on an already-
-   * flat reference needs no extra maths to track the leaf's own scale.
-   */
-  trimMargin?: { left: number; right: number; top: number; bottom: number };
-  trimBoxes?: TrimPiece[];
-  trimSource?: string;
 }
 
 /**
@@ -251,8 +230,13 @@ export interface TrimPiece {
 export interface TrimModel {
   id: string;
   name: Tr;
+  /** Which independent client-facing pick this design belongs to — a
+   *  nalichnik-family piece (shaft/foot/extra) or a korona (crown) piece.
+   *  Doors and rooms don't choose this; the customer does, on its own
+   *  step, entirely independent of which door or room is showing. */
+  category: 'nalichnik' | 'korona';
   /** Fractions of the marked opening rect's own width/height — same meaning
-   *  as `Leaf.trimMargin`. */
+   *  as the door's own trim used to have. */
   trimMargin: { left: number; right: number; top: number; bottom: number };
   trimBoxes: TrimPiece[];
   /** The padded, rectified (flat) photo `trimBoxes` are measured against and
