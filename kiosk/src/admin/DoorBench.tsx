@@ -32,9 +32,11 @@ const STAGES: { id: Stage; label: string }[] = [
   { id: 'korona', label: 'Korona' },
   { id: 'finish', label: 'Yakunlash' },
 ];
-/** Which roles belong to which trim stage. */
+/** Which roles each trim stage offers. The plinth feet are deliberately not
+ *  here: a nalichnik is traced as one outline, and offering separate left and
+ *  right feet only invited extra pieces where one would do. */
 const STAGE_ROLES: Record<'nalichnik' | 'korona', TrimRole[]> = {
-  nalichnik: ['shaft', 'footL', 'footR'],
+  nalichnik: ['shaft'],
   korona: ['crown'],
 };
 const STAGE_HINT: Record<Stage, string> = {
