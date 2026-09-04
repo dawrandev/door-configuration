@@ -22,6 +22,28 @@ const DOOR_TRIM_ROLES: TrimRole[] = [...ROLE_ORDER, 'extra'];
  *  (the shaft, feet, and unlabelled "extra" pieces) is nalichnik-family. */
 const NALICHNIK_ROLES: TrimRole[] = ['shaft', 'footL', 'footR', 'extra'];
 
+/** Adding a door walks these in order. The door itself is always cut; the
+ *  two trim stages are each skippable, and each is judged on its own cut-out
+ *  before moving on. */
+type Stage = 'door' | 'nalichnik' | 'korona' | 'finish';
+const STAGES: { id: Stage; label: string }[] = [
+  { id: 'door', label: 'Eshik' },
+  { id: 'nalichnik', label: 'Nalichnik' },
+  { id: 'korona', label: 'Korona' },
+  { id: 'finish', label: 'Yakunlash' },
+];
+/** Which roles belong to which trim stage. */
+const STAGE_ROLES: Record<'nalichnik' | 'korona', TrimRole[]> = {
+  nalichnik: ['shaft', 'footL', 'footR'],
+  korona: ['crown'],
+};
+const STAGE_HINT: Record<Stage, string> = {
+  door: 'Eshik yuzasining 4 burchagini belgilang — ramkani emas, tavaqani.',
+  nalichnik: 'Eshik yonidagi nalichnikni chizing. Bu eshikda bo‘lmasa, o‘tkazib yuboring.',
+  korona: 'Eshik tepasidagi koronani chizing. Bu eshikda bo‘lmasa, o‘tkazib yuboring.',
+  finish: 'Nomi, ranglari va qaysi qismlar bilan sotilishini belgilang.',
+};
+
 /** Downscale an image to a compact JPEG data URL for storage/re-editing. */
 function compactSource(el: HTMLImageElement, maxW = 1300): string {
   const scale = Math.min(1, maxW / el.width);
@@ -41,6 +63,28 @@ function compactSource(el: HTMLImageElement, maxW = 1300): string {
  * exact door in the photo, only squared up. Nothing is generated.
  */
 const LABELS = ['Yuqori chap', 'Yuqori o‘ng', 'Past o‘ng', 'Past chap'];
+
+/** Where in the four stages this door is. An orientation aid only — the
+ *  stages are walked with the footer buttons, so there is never a way to
+ *  land on one without the one before it being settled. */
+function Stepper({ stage }: { stage: Stage }) {
+  const at = STAGES.findIndex((s) => s.id === stage);
+  return (
+    <div style={{ display: 'flex', gap: 4, margin: '12px 0 10px' }}>
+      {STAGES.map((s, i) => {
+        const now = i === at;
+        return (
+          <div key={s.id} style={{ flex: 1, minWidth: 0 }}>
+            <div style={{ height: 3, borderRadius: 2, background: now ? COLOR.brass : i < at ? 'rgba(143,113,69,.45)' : COLOR.line }} />
+            <div style={{ marginTop: 5, fontSize: 11, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', color: now ? COLOR.ink : COLOR.inkSoft, fontWeight: now ? 600 : 400 }}>
+              {i + 1}. {s.label}
+            </div>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
 
 export function DoorBench({ onDone, edit }: { onDone: () => void; edit?: AdminLeaf }) {
   const [img, setImg] = useState<HTMLImageElement | null>(null);
@@ -85,12 +129,17 @@ export function DoorBench({ onDone, edit }: { onDone: () => void; edit?: AdminLe
 
   // A door is often PHOTOGRAPHED already standing in a good casing — the
   // SAME photo can double as a nalichnik/korona shoot instead of a separate
-  // one. Off by default (most doors don't need this); whatever gets traced
-  // here is never stored on the door itself — it's published straight to
-  // the shared catalog (see `publish()`), split by role into its own
-  // nalichnik entry and/or its own korona entry, exactly like tracing them
-  // directly in TrimBench would.
-  const [trace, setTrace] = useState(false);
+  // one. Whatever gets traced here is never stored on the door itself —
+  // it's published straight to the shared catalog (see `publish()`), split
+  // by role into its own nalichnik entry and/or its own korona entry,
+  // exactly like tracing them directly in TrimBench would.
+  //
+  // Each of those is cut on its OWN stage rather than all at once on one
+  // screen: doing the door, the nalichnik and the korona together made a
+  // mistake in any one of them impossible to attribute, since the only
+  // feedback was a single published result at the end.
+  const [stage, setStage] = useState<Stage>('door');
+  const onTrimStage = stage === 'nalichnik' || stage === 'korona';
   /** Fraction of the leaf's own width/height to reveal on every side —
    *  uniform rather than four independent sliders, since a door photographed
    *  square-on shows roughly as much casing on every side. */
@@ -98,7 +147,10 @@ export function DoorBench({ onDone, edit }: { onDone: () => void; edit?: AdminLe
   const [trim, setTrim] = useState<TrimPieceState[]>([]);
   const [activeTrimId, setActiveTrimId] = useState<string | null>(null);
   const [paddedImg, setPaddedImg] = useState<HTMLImageElement | null>(null);
-  const [catalogTrimName, setCatalogTrimName] = useState('');
+  // Named on their own stages, so neither has to be derived from a shared
+  // name with a suffix bolted on.
+  const [nalichnikName, setNalichnikName] = useState('');
+  const [koronaName, setKoronaName] = useState('');
 
   const wrapRef = useRef<HTMLDivElement>(null);
   const drag = useRef<number | null>(null);
@@ -121,7 +173,7 @@ export function DoorBench({ onDone, edit }: { onDone: () => void; edit?: AdminLe
     // A door no longer carries its own trim data — reopening one never
     // brings back a previous trace (there's nothing left to bring back;
     // whatever was traced before is out in the catalog under its own id).
-    setTrace(false);
+    setStage('door');
     setTrim([]);
     if (!edit.source) return;
     const el = new Image();
@@ -158,10 +210,11 @@ export function DoorBench({ onDone, edit }: { onDone: () => void; edit?: AdminLe
         { x: el.width * 0.28, y: el.height * 0.92 },
       ]);
       setResult(null);
-      setTrace(false);
+      setStage('door');
       setTrim([]);
       setActiveTrimId(null);
-      setCatalogTrimName('');
+      setNalichnikName('');
+      setKoronaName('');
       if (!name) setName(f.name.replace(/\.[^.]+$/, ''));
     };
     el.src = URL.createObjectURL(f);
@@ -245,7 +298,7 @@ export function DoorBench({ onDone, edit }: { onDone: () => void; edit?: AdminLe
    *  door becomes visible to mark. Only runs while tracing is actually on;
    *  a door that doesn't use this feature pays nothing for it. */
   useEffect(() => {
-    if (!trace || !img || corners.length !== 4) { setPaddedImg(null); return; }
+    if (!onTrimStage || !img || corners.length !== 4) { setPaddedImg(null); return; }
     let live = true;
     const t = window.setTimeout(() => {
       try {
@@ -260,7 +313,7 @@ export function DoorBench({ onDone, edit }: { onDone: () => void; edit?: AdminLe
     }, 120);
     return () => { live = false; window.clearTimeout(t); };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [trace, img, corners, margin]);
+  }, [onTrimStage, img, corners, margin]);
 
   const toTrimFrac = useCallback((cx: number, cy: number) => {
     const r = trimWrapRef.current!.getBoundingClientRect();
@@ -333,6 +386,17 @@ export function DoorBench({ onDone, edit }: { onDone: () => void; edit?: AdminLe
   /** An optional, full-resolution "is this really right?" look, shown inline
    *  below the live preview — publish() itself always renders at full
    *  quality regardless, so this is reassurance, not a required step. */
+  /** Move between stages. Always lands on the drawing view rather than the
+   *  cut-out, and selects whatever piece that stage already owns, so a stage
+   *  opens ready to work instead of showing the previous one's leftovers. */
+  const goStage = (next: Stage) => {
+    setStage(next);
+    setShowResult(false);
+    const roles: TrimRole[] =
+      next === 'nalichnik' ? [...STAGE_ROLES.nalichnik, 'extra'] : next === 'korona' ? STAGE_ROLES.korona : [];
+    setActiveTrimId(trim.find((t) => roles.includes(t.role))?.id ?? null);
+  };
+
   const check = async () => {
     if (!img || corners.length !== 4) return;
     setChecking(true);
@@ -400,7 +464,7 @@ export function DoorBench({ onDone, edit }: { onDone: () => void; edit?: AdminLe
     // same as tracing them directly in TrimBench would. Both share the SAME
     // padded rectify (one photo, one margin); only which pieces go in each
     // differs.
-    if (trace && trim.length > 0) {
+    if (trim.length > 0) {
       const tc = rectify(img, corners as [Pt, Pt, Pt, Pt], 1200, marginObj);
       const tscale = Math.min(1, 1000 / tc.width);
       const tsmall = document.createElement('canvas');
@@ -412,12 +476,11 @@ export function DoorBench({ onDone, edit }: { onDone: () => void; edit?: AdminLe
 
       const nalichnikPieces = trim.filter((t) => NALICHNIK_ROLES.includes(t.role));
       const koronaPieces = trim.filter((t) => t.role === 'crown');
-      const bothPresent = nalichnikPieces.length > 0 && koronaPieces.length > 0;
 
       const publishCategory = (category: 'nalichnik' | 'korona', pieces: TrimPieceState[]) => {
         if (!pieces.length) return;
         const label = category === 'nalichnik' ? 'Nalichnik' : 'Korona';
-        const name = bothPresent ? `${catalogTrimName || label} — ${label}` : catalogTrimName || label;
+        const name = (category === 'nalichnik' ? nalichnikName : koronaName).trim() || label;
         const catalogTrim: AdminTrim = {
           id: 'a-' + Date.now().toString(36) + '-' + category,
           name: { uz: name, kk: name, ru: name },
@@ -443,22 +506,26 @@ export function DoorBench({ onDone, edit }: { onDone: () => void; edit?: AdminLe
   const dispW = img ? img.width * zoom : 0;
   const dispH = img ? img.height * zoom : 0;
   const activeTrim = trim.find((t) => t.id === activeTrimId) ?? null;
-  // While an own-trim piece is being edited, the studio shows the padded,
-  // flattened preview it's traced against instead of the raw photo — the
-  // same "only the thing being worked on is drawn" swap RoomBench makes
-  // between its doorway box and an active trim piece.
-  const showTrimStudio = trace && activeTrim && paddedImg;
+  const trimStage = stage === 'nalichnik' || stage === 'korona' ? stage : null;
+  /** Only the pieces this stage owns. Each stage is cut, judged and named on
+   *  its own, so the nalichnik's pieces must never appear while the korona is
+   *  being worked on — that mixing is what made a bad trace impossible to
+   *  attribute to one or the other. */
+  const stagePieces = trimStage ? trim.filter((t) => STAGE_ROLES[trimStage].includes(t.role) || (trimStage === 'nalichnik' && t.role === 'extra')) : [];
+  // On a trim stage the studio shows the padded, flattened crop the trim is
+  // traced against instead of the raw photo.
+  const showTrimStudio = !!trimStage && !!paddedImg;
 
-  // Exactly what the client will receive: every traced piece cut out of the
-  // padded photo, everything else gone. Drawn by the SAME masking the stage
-  // runs, so it cannot flatter the trace. Without this the bench only ever
-  // showed the outline, and a rectangle stretched out to the crown's width
-  // quietly took the wall beside the casing with it — which then landed on
-  // the room photo as a band of that wall's colour.
+  // Exactly what the client will receive from THIS stage: its own traced
+  // pieces cut out of the padded photo, everything else gone. Drawn by the
+  // SAME masking the stage runs, so it cannot flatter the trace. Without
+  // this the bench only ever showed the outline, and a rectangle stretched
+  // out to the crown's width quietly took the wall beside the casing with
+  // it — which then landed on the room photo as a band of that wall's colour.
   const maskedPreview = useRender(
-    () => (showResult && paddedImg && trim.length ? maskTrim('bench-preview', paddedImg.src, trim.map(toStoredTrim)) : Promise.resolve(null)),
+    () => (showResult && paddedImg && stagePieces.length ? maskTrim(`bench-${stage}`, paddedImg.src, stagePieces.map(toStoredTrim)) : Promise.resolve(null)),
     '',
-    [showResult, paddedImg, trim]
+    [showResult, paddedImg, stagePieces, stage]
   );
   const tDispW = paddedImg ? paddedImg.width * zoom : 0;
   const tDispH = paddedImg ? paddedImg.height * zoom : 0;
@@ -473,7 +540,7 @@ export function DoorBench({ onDone, edit }: { onDone: () => void; edit?: AdminLe
             <input type="file" accept="image/*" onChange={onFile} style={{ display: 'none' }} />
           </label>
         )}
-        {img && !showTrimStudio && (
+        {img && !onTrimStage && (
           <div ref={wrapRef} style={{ position: 'relative', width: dispW, height: dispH, flexShrink: 0, touchAction: 'none' }} onPointerMove={onMove} onPointerUp={() => (drag.current = null)}>
             <img src={img.src} alt="" draggable={false} style={{ width: '100%', height: '100%', display: 'block', userSelect: 'none' }} />
             <svg style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', pointerEvents: 'none' }}>
@@ -501,16 +568,20 @@ export function DoorBench({ onDone, edit }: { onDone: () => void; edit?: AdminLe
                   }
                 : null),
             }}
-            onPointerMove={showResult ? undefined : onTrimMove}
-            onPointerUp={showResult ? undefined : () => (trimDrag.current = null)}
-            onPointerDown={showResult ? undefined : onTrimAddPoint}
+            onPointerMove={showResult || !activeTrim ? undefined : onTrimMove}
+            onPointerUp={showResult || !activeTrim ? undefined : () => (trimDrag.current = null)}
+            onPointerDown={showResult || !activeTrim ? undefined : onTrimAddPoint}
           >
-            <img
-              src={showResult ? maskedPreview : paddedImg!.src}
-              alt=""
-              draggable={false}
-              style={{ width: '100%', height: '100%', display: 'block', userSelect: 'none', visibility: showResult && !maskedPreview ? 'hidden' : 'visible' }}
-            />
+            {/* Nothing at all while the cut-out is still being computed —
+                an empty src would have the browser refetch the page. */}
+            {(!showResult || maskedPreview) && (
+              <img
+                src={showResult ? maskedPreview : paddedImg!.src}
+                alt=""
+                draggable={false}
+                style={{ width: '100%', height: '100%', display: 'block', userSelect: 'none' }}
+              />
+            )}
             <svg style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', pointerEvents: 'none' }}>
               {/* The leaf's own extent within the padded canvas — a fixed
                   reference so it's clear where the door itself ends and the
@@ -519,42 +590,42 @@ export function DoorBench({ onDone, edit }: { onDone: () => void; edit?: AdminLe
                   own image covers the trim, so only what falls OUTSIDE this
                   box is what the customer actually ends up seeing. */}
               <rect x={leafRef.x * tDispW} y={leafRef.y * tDispH} width={leafRef.w * tDispW} height={leafRef.h * tDispH} fill="none" stroke={COLOR.lineStrong} strokeDasharray="5 4" strokeWidth={1.5} />
-              {!showResult && (
+              {!showResult && activeTrim && (
                 <polygon
-                  points={activeTrim!.points.map((p) => `${p.x * tDispW},${p.y * tDispH}`).join(' ')}
+                  points={activeTrim.points.map((p) => `${p.x * tDispW},${p.y * tDispH}`).join(' ')}
                   fill="rgba(35,32,27,.15)"
-                  stroke={ROLE_META[activeTrim!.role].color}
+                  stroke={ROLE_META[activeTrim.role].color}
                   strokeWidth={2}
                 />
               )}
-              {!showResult && activeTrim!.holePoints && (
+              {!showResult && activeTrim?.holePoints && (
                 <polygon
-                  points={activeTrim!.holePoints.map((p) => `${p.x * tDispW},${p.y * tDispH}`).join(' ')}
+                  points={activeTrim.holePoints.map((p) => `${p.x * tDispW},${p.y * tDispH}`).join(' ')}
                   fill="rgba(255,255,255,.28)"
-                  stroke={ROLE_META[activeTrim!.role].color}
+                  stroke={ROLE_META[activeTrim.role].color}
                   strokeWidth={2}
                   strokeDasharray="6 5"
                 />
               )}
             </svg>
-            {!showResult && activeTrim!.points.map((p, i) => (
+            {!showResult && activeTrim?.points.map((p, i) => (
               <Handle
                 key={`o${i}`}
                 x={p.x * tDispW}
                 y={p.y * tDispH}
-                color={ROLE_META[activeTrim!.role].color}
-                onPointerDown={(e) => { e.stopPropagation(); (e.target as Element).setPointerCapture(e.pointerId); trimDrag.current = { trimId: activeTrim!.id, loop: 'points', index: i }; }}
-                onDoubleClick={() => removeTrimPoint(activeTrim!.id, 'points', i)}
+                color={ROLE_META[activeTrim.role].color}
+                onPointerDown={(e) => { e.stopPropagation(); (e.target as Element).setPointerCapture(e.pointerId); trimDrag.current = { trimId: activeTrim.id, loop: 'points', index: i }; }}
+                onDoubleClick={() => removeTrimPoint(activeTrim.id, 'points', i)}
               />
             ))}
-            {!showResult && activeTrim!.holePoints?.map((p, i) => (
+            {!showResult && activeTrim?.holePoints?.map((p, i) => (
               <Handle
                 key={`h${i}`}
                 x={p.x * tDispW}
                 y={p.y * tDispH}
-                color={ROLE_META[activeTrim!.role].color}
-                onPointerDown={(e) => { e.stopPropagation(); (e.target as Element).setPointerCapture(e.pointerId); trimDrag.current = { trimId: activeTrim!.id, loop: 'holePoints', index: i }; }}
-                onDoubleClick={() => removeTrimPoint(activeTrim!.id, 'holePoints', i)}
+                color={ROLE_META[activeTrim.role].color}
+                onPointerDown={(e) => { e.stopPropagation(); (e.target as Element).setPointerCapture(e.pointerId); trimDrag.current = { trimId: activeTrim.id, loop: 'holePoints', index: i }; }}
+                onDoubleClick={() => removeTrimPoint(activeTrim.id, 'holePoints', i)}
               />
             ))}
           </div>
@@ -564,15 +635,24 @@ export function DoorBench({ onDone, edit }: { onDone: () => void; edit?: AdminLe
       <Panel>
         <PanelBody>
           <div style={{ ...TYPE.h2, color: COLOR.ink, margin: '0 0 4px' }}>{edit ? 'Eshikni tahrirlash' : 'Yangi eshik'}</div>
-          <div style={{ ...TYPE.small, color: COLOR.inkSoft }}>Eshik <b>yuzasining</b> 4 burchagini belgilang — ramkani emas, tavaqani.</div>
+          {!img && <div style={{ ...TYPE.small, color: COLOR.inkSoft }}>Boshlash uchun eshik rasmini yuklang.</div>}
           {img && (
             <>
-              {/* live result — updates as the corners move, so a bad mark is seen at once */}
-              <Label>Jonli ko‘rinish</Label>
-              <div style={{ display: 'flex', justifyContent: 'center', background: COLOR.paper, border: `1px solid ${COLOR.line}`, borderRadius: RADIUS, padding: 10, minHeight: 150 }}>
-                {live ? <img src={live} alt="" style={{ maxHeight: 240, borderRadius: RADIUS_SM }} /> : <span style={{ color: COLOR.inkSoft, fontSize: 12, alignSelf: 'center' }}>burchaklarni sozlang…</span>}
-              </div>
+              <Stepper stage={stage} />
+              <div style={{ ...TYPE.small, color: COLOR.inkSoft }}>{STAGE_HINT[stage]}</div>
 
+              {stage === 'door' && (
+                <>
+                  {/* live result — updates as the corners move, so a bad mark is seen at once */}
+                  <Label>Jonli ko‘rinish</Label>
+                  <div style={{ display: 'flex', justifyContent: 'center', background: COLOR.paper, border: `1px solid ${COLOR.line}`, borderRadius: RADIUS, padding: 10, minHeight: 150 }}>
+                    {live ? <img src={live} alt="" style={{ maxHeight: 240, borderRadius: RADIUS_SM }} /> : <span style={{ color: COLOR.inkSoft, fontSize: 12, alignSelf: 'center' }}>burchaklarni sozlang…</span>}
+                  </div>
+                </>
+              )}
+
+              {stage === 'finish' && (
+              <>
               <Section title="Nomlanish">
                 <Label>Nomi</Label>
                 <input value={name} onChange={(e) => setName(e.target.value)} style={inp} placeholder="Masalan: Feruza klassik" />
@@ -651,41 +731,31 @@ export function DoorBench({ onDone, edit }: { onDone: () => void; edit?: AdminLe
                   </div>
                 )}
               </Section>
+              </>
+              )}
 
-              <Section title="Nalichnik va koronani chizish (ixtiyoriy)">
-                <label style={{ display: 'flex', alignItems: 'center', gap: 8, minHeight: TOUCH_MIN, cursor: 'pointer' }}>
-                  <input type="checkbox" checked={trace} onChange={(e) => { setTrace(e.target.checked); setActiveTrimId(null); }} />
-                  <span style={{ fontSize: 13, color: COLOR.ink }}>Shu suratdan nalichnik/korona ham chizib olish</span>
-                </label>
-                <div style={{ fontSize: 12, color: COLOR.inkSoft, lineHeight: 1.5, marginTop: 6 }}>
-                  Faqat suratda eshik atrofida haqiqiy nalichnik ko‘rinib turgan
-                  bo‘lsa ishlating. Chizilgan qism(lar) bu eshikka emas, mustaqil
-                  «Nalichniklar» katalogiga qo‘shiladi — mijoz ularni istalgan
-                  boshqa eshik yoki xona bilan ham tanlab ko‘ra oladi.
-                </div>
-                {trace && (
+              {onTrimStage && (
                   <>
                     <Label>Atrofni ochish — {(margin * 100).toFixed(0)}%</Label>
                     <input type="range" min={0.03} max={0.4} step={0.01} value={margin} onChange={(e) => setMargin(+e.target.value)} style={{ width: '100%' }} />
                     <div style={{ fontSize: 12, color: COLOR.inkSoft, lineHeight: 1.5, marginTop: 6 }}>
-                      Bu faqat ko‘rish uchun emas: eshik chetidan qancha
-                      tashqarini chizish mumkinligini, ya’ni nalichnik mijoz
-                      ekranida eshikdan qancha chetga chiqib turishini
-                      belgilaydi. Suratda nalichnik sig‘adigan darajada oching,
-                      ortiqchasiga emas.
+                      Nalichnik eshikdan qancha chetga chiqishini belgilaydi —
+                      u sig‘adigan darajada oching, ortiqchasiga emas.
                     </div>
 
+                    {/* Only this stage's own roles — the korona stage must not
+                        offer to add a shaft, or the two would mix again. */}
                     <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginTop: 10 }}>
-                      {ROLE_ORDER.map((role) => {
+                      {STAGE_ROLES[trimStage!].map((role) => {
                         const present = trim.some((t) => t.role === role);
                         return (
                           <RoleChip key={role} label={ROLE_META[role].label} color={ROLE_META[role].color} disabled={present} onClick={() => addTrimPiece(role)} />
                         );
                       })}
-                      <RoleChip label="Boshqa" color={ROLE_META.extra.color} onClick={() => addTrimPiece('extra')} />
+                      {stage === 'nalichnik' && <RoleChip label="Boshqa" color={ROLE_META.extra.color} onClick={() => addTrimPiece('extra')} />}
                     </div>
 
-                    {trim.length > 0 && (
+                    {stagePieces.length > 0 && (
                       <>
                         <button
                           onClick={() => setShowResult((v) => !v)}
@@ -699,20 +769,15 @@ export function DoorBench({ onDone, edit }: { onDone: () => void; edit?: AdminLe
                           {showResult ? '← Chizishga qaytish' : 'Kesilgan natijani ko‘rish'}
                         </button>
                         <div style={{ fontSize: 12, color: COLOR.inkSoft, lineHeight: 1.5, marginTop: 6 }}>
-                          Mijoz ekraniga aynan shu — kesilgan qism tushadi.
-                          Kataklar ko‘rinib turgan joy bo‘sh qoladi. Punktir
-                          to‘rtburchak ichini eshikning o‘zi yopadi, shuning
-                          uchun mijoz faqat undan tashqaridagi qismni ko‘radi.
-                          Agar o‘sha tashqi qismga eshik atrofidagi devor ham
-                          tushib qolgan bo‘lsa, o‘sha devor xona rasmiga ham
-                          chiqadi — nuqtalarni nalichnikning haqiqiy chetiga
-                          torting.
+                          Mijoz ekraniga aynan shu tushadi; kataklar — bo‘sh joy.
+                          Punktir ichini eshikning o‘zi yopadi. Kesimga devor ham
+                          tushib qolgan bo‘lsa, u xona rasmiga ham chiqadi.
                         </div>
                       </>
                     )}
 
                     <div style={{ marginTop: 10 }}>
-                      {trim.map((t) => {
+                      {stagePieces.map((t) => {
                         const meta = ROLE_META[t.role];
                         const active = t.id === activeTrimId;
                         return (
@@ -763,43 +828,49 @@ export function DoorBench({ onDone, edit }: { onDone: () => void; edit?: AdminLe
                       })}
                     </div>
 
-                    {trim.length === 0 ? (
-                      <div style={{ fontSize: 12, color: DANGER.text, marginTop: 8 }}>
-                        Birorta qism chizilmagan — nashr qilinganda hech narsa katalogga qo‘shilmaydi.
+                    {stagePieces.length === 0 ? (
+                      <div style={{ fontSize: 12, color: COLOR.inkSoft, marginTop: 8, lineHeight: 1.5 }}>
+                        Hali hech narsa chizilmagan. Bu eshikda {stage === 'korona' ? 'korona' : 'nalichnik'} bo‘lmasa,
+                        pastdagi «O‘tkazib yuborish» tugmasini bosing.
                       </div>
                     ) : (
                       <div style={{ marginTop: 12, paddingTop: 12, borderTop: `1px solid ${COLOR.line}` }}>
                         <Label>Dizayn nomi</Label>
                         <input
-                          value={catalogTrimName}
-                          onChange={(e) => setCatalogTrimName(e.target.value)}
+                          value={stage === 'korona' ? koronaName : nalichnikName}
+                          onChange={(e) => (stage === 'korona' ? setKoronaName(e.target.value) : setNalichnikName(e.target.value))}
                           style={inp}
-                          placeholder="Masalan: Klassik oq korona"
+                          placeholder={stage === 'korona' ? 'Masalan: Klassik oq korona' : 'Masalan: Klassik oq nalichnik'}
                         />
                       </div>
                     )}
                   </>
                 )}
-              </Section>
 
-              <Section title="Joylashuv">
-                <Label>Kattalashtirish — {(zoom * 100).toFixed(0)}%</Label>
-                {/* Also drives the trim studio's own zoom (see tDispW/tDispH
-                    above) — dense, ornate trim needs room on screen to place
-                    close points without adjacent 44px handles overlapping. */}
-                <input type="range" min={0.08} max={8} step={0.02} value={zoom} onChange={(e) => setZoom(+e.target.value)} style={{ width: '100%' }} />
-                <Label>Burchakni aniqlash</Label>
-                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
-                  {corners.map((_, i) => (
-                    <div key={i} style={{ background: '#fff', border: `1px solid ${COLOR.line}`, borderRadius: RADIUS, padding: 8 }}>
-                      <div style={{ fontSize: 11, color: COLOR.inkSoft, marginBottom: 5 }}>{LABELS[i]}</div>
-                      <Pad onNudge={(dx, dy) => nudge(i, dx, dy)} />
-                    </div>
-                  ))}
-                </div>
-              </Section>
+              {stage !== 'finish' && (
+                <Section title="Joylashuv">
+                  <Label>Kattalashtirish — {(zoom * 100).toFixed(0)}%</Label>
+                  {/* Also drives the trim studio's own zoom (see tDispW/tDispH
+                      above) — dense, ornate trim needs room on screen to place
+                      close points without adjacent 44px handles overlapping. */}
+                  <input type="range" min={0.08} max={8} step={0.02} value={zoom} onChange={(e) => setZoom(+e.target.value)} style={{ width: '100%' }} />
+                  {stage === 'door' && (
+                    <>
+                      <Label>Burchakni aniqlash</Label>
+                      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
+                        {corners.map((_, i) => (
+                          <div key={i} style={{ background: '#fff', border: `1px solid ${COLOR.line}`, borderRadius: RADIUS, padding: 8 }}>
+                            <div style={{ fontSize: 11, color: COLOR.inkSoft, marginBottom: 5 }}>{LABELS[i]}</div>
+                            <Pad onNudge={(dx, dy) => nudge(i, dx, dy)} />
+                          </div>
+                        ))}
+                      </div>
+                    </>
+                  )}
+                </Section>
+              )}
 
-              {result && (
+              {stage === 'finish' && result && (
                 <div style={{ marginTop: 16 }}>
                   <div style={{ fontSize: 11, color: COLOR.inkSoft, marginBottom: 6 }}>Yakuniy sifat:</div>
                   <div style={{ display: 'flex', justifyContent: 'center', background: COLOR.paper, border: `1px solid ${COLOR.line}`, borderRadius: RADIUS, padding: 10 }}>
@@ -812,13 +883,35 @@ export function DoorBench({ onDone, edit }: { onDone: () => void; edit?: AdminLe
         </PanelBody>
         {img && (
           <PanelFooter>
+            {/* One stage, one decision: go back, move on, or — only at the
+                end — publish. The quality check belongs with publishing, not
+                beside the tracing it says nothing about. */}
             <div style={{ display: 'flex', gap: 8 }}>
-              <AdminGhostButton onClick={check} disabled={checking} style={{ flex: 1 }}>
-                {checking ? 'Ishlanmoqda…' : 'Yakuniy sifatda tekshirish'}
-              </AdminGhostButton>
-              <AdminPrimaryButton onClick={publish} disabled={!live || busy} style={{ flex: 1 }}>
-                {busy ? 'Saqlanmoqda…' : 'Qo‘shish ✓'}
-              </AdminPrimaryButton>
+              {stage !== 'door' && (
+                <AdminGhostButton onClick={() => goStage(STAGES[STAGES.findIndex((s) => s.id === stage) - 1].id)} style={{ flex: '0 0 auto', width: 'auto', padding: '0 16px' }}>
+                  ← Orqaga
+                </AdminGhostButton>
+              )}
+              {stage === 'door' && (
+                <AdminPrimaryButton onClick={() => goStage('nalichnik')} disabled={!live} style={{ flex: 1 }}>
+                  Davom etish →
+                </AdminPrimaryButton>
+              )}
+              {onTrimStage && (
+                <AdminPrimaryButton onClick={() => goStage(stage === 'nalichnik' ? 'korona' : 'finish')} style={{ flex: 1 }}>
+                  {stagePieces.length === 0 ? 'O‘tkazib yuborish →' : 'Davom etish →'}
+                </AdminPrimaryButton>
+              )}
+              {stage === 'finish' && (
+                <>
+                  <AdminGhostButton onClick={check} disabled={checking} style={{ flex: 1 }}>
+                    {checking ? 'Ishlanmoqda…' : 'Sifatni tekshirish'}
+                  </AdminGhostButton>
+                  <AdminPrimaryButton onClick={publish} disabled={!live || busy} style={{ flex: 1 }}>
+                    {busy ? 'Saqlanmoqda…' : 'Qo‘shish ✓'}
+                  </AdminPrimaryButton>
+                </>
+              )}
             </div>
           </PanelFooter>
         )}
