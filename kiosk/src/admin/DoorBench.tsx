@@ -7,6 +7,7 @@ import {
   Panel, PanelBody, PanelFooter, Label, Section, inp, AdminPrimaryButton, AdminGhostButton, Seg, Pad, Handle, DANGER, useToast, ROLE_ORDER, ROLE_META, RoleChip, MoveResize,
 } from './adminKit';
 import { bboxOfPoints, seedPoints, defaultRectFor, nearestLoop, toStoredTrim, type TrimPieceState } from './trimGeometry';
+import { maskTrim, useRender } from '../render/recolor';
 import type { TrimRole } from '../catalog/types';
 
 /** Every role offered when marking which nalichnik/korona pieces a door
@@ -52,6 +53,8 @@ export function DoorBench({ onDone, edit }: { onDone: () => void; edit?: AdminLe
   const handleSide: 'left' | 'right' | 'none' = 'none';
   const [corners, setCorners] = useState<Pt[]>([]);
   const [zoom, setZoom] = useState(1);
+  /** Swap the tracing photo for the cut-out result — see `maskedPreview`. */
+  const [showResult, setShowResult] = useState(false);
   const [result, setResult] = useState<string | null>(null);
   const [checking, setChecking] = useState(false);
   const [busy, setBusy] = useState(false);
@@ -445,6 +448,18 @@ export function DoorBench({ onDone, edit }: { onDone: () => void; edit?: AdminLe
   // same "only the thing being worked on is drawn" swap RoomBench makes
   // between its doorway box and an active trim piece.
   const showTrimStudio = trace && activeTrim && paddedImg;
+
+  // Exactly what the client will receive: every traced piece cut out of the
+  // padded photo, everything else gone. Drawn by the SAME masking the stage
+  // runs, so it cannot flatter the trace. Without this the bench only ever
+  // showed the outline, and a rectangle stretched out to the crown's width
+  // quietly took the wall beside the casing with it — which then landed on
+  // the room photo as a band of that wall's colour.
+  const maskedPreview = useRender(
+    () => (showResult && paddedImg && trim.length ? maskTrim('bench-preview', paddedImg.src, trim.map(toStoredTrim)) : Promise.resolve(null)),
+    '',
+    [showResult, paddedImg, trim]
+  );
   const tDispW = paddedImg ? paddedImg.width * zoom : 0;
   const tDispH = paddedImg ? paddedImg.height * zoom : 0;
 
@@ -472,24 +487,47 @@ export function DoorBench({ onDone, edit }: { onDone: () => void; edit?: AdminLe
         {showTrimStudio && (
           <div
             ref={trimWrapRef}
-            style={{ position: 'relative', width: tDispW, height: tDispH, flexShrink: 0, touchAction: 'none' }}
-            onPointerMove={onTrimMove}
-            onPointerUp={() => (trimDrag.current = null)}
-            onPointerDown={onTrimAddPoint}
+            style={{
+              position: 'relative', width: tDispW, height: tDispH, flexShrink: 0, touchAction: 'none',
+              // A checker behind the cut-out, so "nothing here" reads as empty
+              // rather than as a colour the trim actually has.
+              ...(showResult
+                ? {
+                    backgroundImage:
+                      'linear-gradient(45deg,#e6e2da 25%,transparent 25%),linear-gradient(-45deg,#e6e2da 25%,transparent 25%),linear-gradient(45deg,transparent 75%,#e6e2da 75%),linear-gradient(-45deg,transparent 75%,#e6e2da 75%)',
+                    backgroundSize: '16px 16px',
+                    backgroundPosition: '0 0,0 8px,8px -8px,-8px 0',
+                    backgroundColor: '#fff',
+                  }
+                : null),
+            }}
+            onPointerMove={showResult ? undefined : onTrimMove}
+            onPointerUp={showResult ? undefined : () => (trimDrag.current = null)}
+            onPointerDown={showResult ? undefined : onTrimAddPoint}
           >
-            <img src={paddedImg!.src} alt="" draggable={false} style={{ width: '100%', height: '100%', display: 'block', userSelect: 'none' }} />
+            <img
+              src={showResult ? maskedPreview : paddedImg!.src}
+              alt=""
+              draggable={false}
+              style={{ width: '100%', height: '100%', display: 'block', userSelect: 'none', visibility: showResult && !maskedPreview ? 'hidden' : 'visible' }}
+            />
             <svg style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', pointerEvents: 'none' }}>
               {/* The leaf's own extent within the padded canvas — a fixed
                   reference so it's clear where the door itself ends and the
                   revealed casing begins. */}
+              {/* Kept visible in the cut-out view too: inside it the door's
+                  own image covers the trim, so only what falls OUTSIDE this
+                  box is what the customer actually ends up seeing. */}
               <rect x={leafRef.x * tDispW} y={leafRef.y * tDispH} width={leafRef.w * tDispW} height={leafRef.h * tDispH} fill="none" stroke={COLOR.lineStrong} strokeDasharray="5 4" strokeWidth={1.5} />
-              <polygon
-                points={activeTrim!.points.map((p) => `${p.x * tDispW},${p.y * tDispH}`).join(' ')}
-                fill="rgba(35,32,27,.15)"
-                stroke={ROLE_META[activeTrim!.role].color}
-                strokeWidth={2}
-              />
-              {activeTrim!.holePoints && (
+              {!showResult && (
+                <polygon
+                  points={activeTrim!.points.map((p) => `${p.x * tDispW},${p.y * tDispH}`).join(' ')}
+                  fill="rgba(35,32,27,.15)"
+                  stroke={ROLE_META[activeTrim!.role].color}
+                  strokeWidth={2}
+                />
+              )}
+              {!showResult && activeTrim!.holePoints && (
                 <polygon
                   points={activeTrim!.holePoints.map((p) => `${p.x * tDispW},${p.y * tDispH}`).join(' ')}
                   fill="rgba(255,255,255,.28)"
@@ -499,7 +537,7 @@ export function DoorBench({ onDone, edit }: { onDone: () => void; edit?: AdminLe
                 />
               )}
             </svg>
-            {activeTrim!.points.map((p, i) => (
+            {!showResult && activeTrim!.points.map((p, i) => (
               <Handle
                 key={`o${i}`}
                 x={p.x * tDispW}
@@ -509,7 +547,7 @@ export function DoorBench({ onDone, edit }: { onDone: () => void; edit?: AdminLe
                 onDoubleClick={() => removeTrimPoint(activeTrim!.id, 'points', i)}
               />
             ))}
-            {activeTrim!.holePoints?.map((p, i) => (
+            {!showResult && activeTrim!.holePoints?.map((p, i) => (
               <Handle
                 key={`h${i}`}
                 x={p.x * tDispW}
@@ -629,6 +667,13 @@ export function DoorBench({ onDone, edit }: { onDone: () => void; edit?: AdminLe
                   <>
                     <Label>Atrofni ochish — {(margin * 100).toFixed(0)}%</Label>
                     <input type="range" min={0.03} max={0.4} step={0.01} value={margin} onChange={(e) => setMargin(+e.target.value)} style={{ width: '100%' }} />
+                    <div style={{ fontSize: 12, color: COLOR.inkSoft, lineHeight: 1.5, marginTop: 6 }}>
+                      Bu faqat ko‘rish uchun emas: eshik chetidan qancha
+                      tashqarini chizish mumkinligini, ya’ni nalichnik mijoz
+                      ekranida eshikdan qancha chetga chiqib turishini
+                      belgilaydi. Suratda nalichnik sig‘adigan darajada oching,
+                      ortiqchasiga emas.
+                    </div>
 
                     <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginTop: 10 }}>
                       {ROLE_ORDER.map((role) => {
@@ -639,6 +684,32 @@ export function DoorBench({ onDone, edit }: { onDone: () => void; edit?: AdminLe
                       })}
                       <RoleChip label="Boshqa" color={ROLE_META.extra.color} onClick={() => addTrimPiece('extra')} />
                     </div>
+
+                    {trim.length > 0 && (
+                      <>
+                        <button
+                          onClick={() => setShowResult((v) => !v)}
+                          style={{
+                            marginTop: 10, minHeight: TOUCH_MIN, width: '100%', borderRadius: RADIUS_SM,
+                            border: `1px solid ${showResult ? COLOR.brass : COLOR.lineStrong}`,
+                            background: showResult ? 'rgba(143,113,69,.1)' : '#fff',
+                            color: COLOR.ink, fontSize: 13, cursor: 'pointer',
+                          }}
+                        >
+                          {showResult ? '← Chizishga qaytish' : 'Kesilgan natijani ko‘rish'}
+                        </button>
+                        <div style={{ fontSize: 12, color: COLOR.inkSoft, lineHeight: 1.5, marginTop: 6 }}>
+                          Mijoz ekraniga aynan shu — kesilgan qism tushadi.
+                          Kataklar ko‘rinib turgan joy bo‘sh qoladi. Punktir
+                          to‘rtburchak ichini eshikning o‘zi yopadi, shuning
+                          uchun mijoz faqat undan tashqaridagi qismni ko‘radi.
+                          Agar o‘sha tashqi qismga eshik atrofidagi devor ham
+                          tushib qolgan bo‘lsa, o‘sha devor xona rasmiga ham
+                          chiqadi — nuqtalarni nalichnikning haqiqiy chetiga
+                          torting.
+                        </div>
+                      </>
+                    )}
 
                     <div style={{ marginTop: 10 }}>
                       {trim.map((t) => {

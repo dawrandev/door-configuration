@@ -392,6 +392,19 @@ export function recolorTrimModel(model: TrimModel, tint: Tint | null): Promise<s
 }
 
 /**
+ * The traced trim cut out of its own photo, unpainted — what a bench shows so
+ * a trace can be judged against what the client will actually receive.
+ *
+ * Deliberately the SAME function the stage runs, just with no tint: an
+ * approximation drawn separately would be free to disagree with the real
+ * masking, which is exactly the gap that let a trace quietly swallow a strip
+ * of the wall behind the casing and only reveal it on the room photo.
+ */
+export function maskTrim(id: string, source: string, boxes: TrimPiece[]): Promise<string | null> {
+  return recolorTrimFrom(id, source, boxes, null);
+}
+
+/**
  * Resolve an async render to a URL, with a fallback while it runs — the
  * original image, so a door in mid-recolour simply shows as photographed for
  * a frame rather than flashing blank.
