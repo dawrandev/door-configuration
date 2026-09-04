@@ -30,7 +30,7 @@ export const ROLE_ORDER: TrimRole[] = ['shaft', 'crown'];
  *  swatches sit comfortably in the same warm, printed-catalogue palette as
  *  the rest of the bench, while staying five clearly distinct hues. */
 export const ROLE_META: Record<TrimRole, { label: string; color: string }> = {
-  shaft: { label: 'Yelka', color: '#C0952E' },
+  shaft: { label: 'Nalichnik', color: '#C0952E' },
   crown: { label: 'Korona', color: '#A83D6B' },
   footL: { label: 'Chap oyoq', color: '#1E8FA0' },
   footR: { label: 'O‘ng oyoq', color: '#4C8C4A' },

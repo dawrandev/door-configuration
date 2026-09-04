@@ -578,7 +578,7 @@ export function DoorBench({ onDone, edit }: { onDone: () => void; edit?: AdminLe
                 <div style={{ fontSize: 12, color: COLOR.inkSoft, lineHeight: 1.5, marginBottom: 10 }}>
                   Xonaning nalichnigi bir marta o‘lchanadi, lekin har eshik uning
                   qaysi qismini olib keladi — bu shu yerda belgilanadi. Masalan
-                  zamonaviy eshik faqat <b>Yelka</b>ni olib kelishi, Korona va
+                  zamonaviy eshik faqat <b>Nalichnik</b>ni olib kelishi, Korona va
                   oyoqlarsiz sotilishi mumkin.
                 </div>
                 <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
