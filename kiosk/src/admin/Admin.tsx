@@ -7,22 +7,24 @@ import type { Leaf, Room, TrimModel } from '../catalog/types';
 import { DoorBench } from './DoorBench';
 import { RoomBench } from './RoomBench';
 import { TrimBench } from './TrimBench';
-import { Masthead, ToastHost, ConfirmBar, DANGER, AdminGhostButton, AdminPrimaryButton, useToast } from './adminKit';
+import { Masthead, ToastHost, ConfirmModal, DANGER, AdminGhostButton, AdminPrimaryButton, useToast } from './adminKit';
 import {
   mergeLeaves, mergeRooms, mergeTrims, editLeaf, editRoom, editTrim, removeLeaf, removeRoom, removeTrimModel,
-  restoreLeaf, restoreRoom, restoreTrimModel,
-  loadLeafEdits, loadRoomEdits, loadTrimEdits, isBuiltIn, isOverridden, isRoomOverridden, isTrimOverridden,
+  isBuiltIn, isOverridden, isRoomOverridden, isTrimOverridden,
   type AdminLeaf, type AdminRoom, type AdminTrim,
 } from './adminStore';
 
 /**
  * The workshop bench: one place to manage the whole catalogue.
  *
- * Two tabs, doors and rooms, each a list of everything the showroom shows —
- * built-ins and bench-added alike, since they are the same shape. A built-in is
- * never deleted (its pixels are in the bundle) only hidden, and can be restored;
- * a bench item is deleted outright. Adding is the corner/box tool one tab over.
- * The customer never reaches here; staff type the address.
+ * Three tabs — doors, rooms, trims — each a list of everything the showroom
+ * shows, built-ins and bench-added alike, since they are the same shape.
+ * "O'chirish" always reads as a real, final delete from this screen: a
+ * bench item is actually removed; a built-in (whose pixels are in the
+ * bundle and can't literally be deleted) is hidden from the catalogue
+ * instead, with no restore control here — that's a deliberate ask when it's
+ * genuinely needed, not a self-service undo. Adding is the corner/box tool
+ * one tab over. The customer never reaches here; staff type the address.
  *
  * Same ink-on-limestone chrome as the showroom (design/tokens.ts) — a
  * salesperson moves between this and the client screen all day, and a second,
@@ -58,9 +60,6 @@ export function Admin() {
   const leaves = mergeLeaves(BASE_LEAVES);
   const rooms = mergeRooms(BASE_ROOMS);
   const trims = mergeTrims(BASE_TRIMS);
-  const hiddenLeaves = Object.entries(loadLeafEdits()).filter(([, e]) => e.hidden).map(([id]) => id);
-  const hiddenRooms = Object.entries(loadRoomEdits()).filter(([, e]) => e.hidden).map(([id]) => id);
-  const hiddenTrims = Object.entries(loadTrimEdits()).filter(([, e]) => e.hidden).map(([id]) => id);
 
   const q = query.trim().toLowerCase();
   const shownLeaves = q ? leaves.filter((l) => l.name.uz.toLowerCase().includes(q)) : leaves;
@@ -76,7 +75,6 @@ export function Admin() {
           doorCount={leaves.length}
           roomCount={rooms.length}
           trimCount={trims.length}
-          hiddenCount={hiddenLeaves.length + hiddenRooms.length + hiddenTrims.length}
           recentName={recent?.name.uz}
         />
 
@@ -110,33 +108,26 @@ export function Admin() {
         </div>
 
         {tab === 'doors' ? (
-          // While searching, a hidden item never renders (search only shows
-          // shownLeaves) — so it must not count toward "there's something
-          // here", or a query matching zero visible doors renders a blank
-          // grid instead of the empty state.
-          shownLeaves.length === 0 && (q || hiddenLeaves.length === 0) ? (
+          shownLeaves.length === 0 ? (
             <EmptyState label={q ? 'Shu nomda eshik topilmadi' : 'Hozircha eshiklar yo‘q — yuqoridagi tugma bilan qo‘shing'} />
           ) : (
             <Grid>
               {shownLeaves.map((l) => <DoorCard key={l.id} leaf={l} onEdit={() => setEditLeafItem(l as AdminLeaf)} />)}
-              {!q && hiddenLeaves.map((id) => <HiddenCard key={id} label={BASE_LEAVES.find((l) => l.id === id)?.name.uz ?? id} onRestore={() => restoreLeaf(id)} />)}
             </Grid>
           )
         ) : tab === 'rooms' ? (
-          shownRooms.length === 0 && (q || hiddenRooms.length === 0) ? (
+          shownRooms.length === 0 ? (
             <EmptyState label={q ? 'Shu nomda xona topilmadi' : 'Hozircha xonalar yo‘q — yuqoridagi tugma bilan qo‘shing'} />
           ) : (
             <Grid>
               {shownRooms.map((r) => <RoomCard key={r.id} room={r} onEdit={() => setEditRoomItem(r as AdminRoom)} />)}
-              {!q && hiddenRooms.map((id) => <HiddenCard key={id} label={BASE_ROOMS.find((r) => r.id === id)?.name.uz ?? id} onRestore={() => restoreRoom(id)} />)}
             </Grid>
           )
-        ) : shownTrims.length === 0 && (q || hiddenTrims.length === 0) ? (
+        ) : shownTrims.length === 0 ? (
           <EmptyState label={q ? 'Shu nomda nalichnik topilmadi' : 'Hozircha nalichnik dizaynlari yo‘q — yuqoridagi tugma bilan qo‘shing'} />
         ) : (
           <Grid>
             {shownTrims.map((t) => <TrimCard key={t.id} trim={t} onEdit={() => setEditTrimItem(t as AdminTrim)} />)}
-            {!q && hiddenTrims.map((id) => <HiddenCard key={id} label={BASE_TRIMS.find((t) => t.id === id)?.name.uz ?? id} onRestore={() => restoreTrimModel(id)} />)}
           </Grid>
         )}
       </div>
@@ -153,12 +144,11 @@ function mostRecent(items: (Leaf | Room | TrimModel)[]): (Leaf | Room | TrimMode
   return dated.reduce((a, b) => (b.createdAt > a.createdAt ? b : a));
 }
 
-function Stats({ doorCount, roomCount, trimCount, hiddenCount, recentName }: { doorCount: number; roomCount: number; trimCount: number; hiddenCount: number; recentName?: string }) {
+function Stats({ doorCount, roomCount, trimCount, recentName }: { doorCount: number; roomCount: number; trimCount: number; recentName?: string }) {
   const tiles: { label: string; value: string }[] = [
     { label: 'Eshiklar', value: String(doorCount) },
     { label: 'Xonalar', value: String(roomCount) },
     { label: 'Nalichniklar', value: String(trimCount) },
-    { label: 'Yashiringan', value: String(hiddenCount) },
     { label: 'So‘nggi qo‘shilgan', value: recentName ?? '—' },
   ];
   return (
@@ -232,44 +222,34 @@ function TrimCard({ trim, onEdit }: { trim: TrimModel; onEdit: () => void }) {
   );
 }
 
-/** Edit + delete, with the delete swapping to an inline confirm strip on
- *  first tap instead of firing immediately — a bench-added item is gone
- *  for good once it does. */
+/** Edit + delete, with the delete opening a real modal first — an item is
+ *  gone for good the moment it's confirmed (a bench-added item is deleted
+ *  outright; a built-in is hidden from the catalogue, with no way back
+ *  through this screen — ask for that if it's ever actually needed). */
 function DeleteRow({ onEdit, onDelete, kind, itemName }: { onEdit?: () => void; onDelete: () => void; kind: 'delete' | 'restore'; itemName: string }) {
   const [confirming, setConfirming] = useState(false);
   const toast = useToast();
-  if (confirming) {
-    return (
-      <div style={{ marginTop: 10 }}>
-        <ConfirmBar
-          message={`«${itemName}» o‘chirilsinmi?`}
+  const label = kind === 'restore' ? 'Aslini qaytarish' : 'O‘chirish';
+  return (
+    <>
+      <div style={{ display: 'flex', gap: 8, marginTop: 10 }}>
+        {onEdit && <AdminGhostButton onClick={onEdit} style={{ flex: 1 }}>Tahrirlash</AdminGhostButton>}
+        <button
+          onClick={() => (kind === 'restore' ? onDelete() : setConfirming(true))}
+          style={{ flex: 1, minHeight: TOUCH_MIN, padding: '9px', borderRadius: RADIUS_SM, border: `1px solid ${DANGER.border}`, background: 'transparent', color: DANGER.text, cursor: 'pointer', fontSize: 13, fontFamily: 'inherit' }}
+        >
+          {label}
+        </button>
+      </div>
+      {confirming && (
+        <ConfirmModal
+          title="O‘chirilsinmi?"
+          message={`«${itemName}» butunlay o‘chiriladi. Bu amalni ortga qaytarib bo‘lmaydi.`}
           onCancel={() => setConfirming(false)}
           onConfirm={() => { onDelete(); toast('O‘chirildi'); setConfirming(false); }}
         />
-      </div>
-    );
-  }
-  const label = kind === 'restore' ? 'Aslini qaytarish' : 'O‘chirish';
-  return (
-    <div style={{ display: 'flex', gap: 8, marginTop: 10 }}>
-      {onEdit && <AdminGhostButton onClick={onEdit} style={{ flex: 1 }}>Tahrirlash</AdminGhostButton>}
-      <button
-        onClick={() => (kind === 'restore' ? onDelete() : setConfirming(true))}
-        style={{ flex: 1, minHeight: TOUCH_MIN, padding: '9px', borderRadius: RADIUS_SM, border: `1px solid ${DANGER.border}`, background: 'transparent', color: DANGER.text, cursor: 'pointer', fontSize: 13, fontFamily: 'inherit' }}
-      >
-        {label}
-      </button>
-    </div>
-  );
-}
-
-function HiddenCard({ label, onRestore }: { label: string; onRestore: () => void }) {
-  return (
-    <Card>
-      <div style={{ aspectRatio: THUMB_RATIO, background: COLOR.paper, borderRadius: RADIUS_SM, display: 'flex', alignItems: 'center', justifyContent: 'center', color: COLOR.inkSoft, fontSize: 13 }}>Yashirilgan</div>
-      <div style={{ ...TYPE.small, color: COLOR.inkSoft, marginTop: 8 }}>{label}</div>
-      <AdminGhostButton onClick={onRestore} style={{ marginTop: 10 }}>Qaytarish</AdminGhostButton>
-    </Card>
+      )}
+    </>
   );
 }
 

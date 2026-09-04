@@ -160,22 +160,54 @@ export function DimHUD({ rect, w, h }: { rect: { x: number; y: number; w: number
 }
 
 /**
- * An inline "are you sure" strip, not a modal. It swaps in for whatever
- * triggered it (a delete button) rather than floating a dialog over the
- * photo, so it can never sit on top of — or intercept a pointer meant for —
- * a corner/point drag target elsewhere on screen.
+ * A real modal: dimmed backdrop, centred card, floating above everything —
+ * for a decision that needs the operator's full attention (an irreversible
+ * delete) rather than a strip competing for space inside a small card.
+ * Closes on backdrop click, same as pressing Bekor qilish.
  */
-export function ConfirmBar({ message, onConfirm, onCancel }: { message: string; onConfirm: () => void; onCancel: () => void }) {
+export function Modal({ children, onClose }: { children: ReactNode; onClose: () => void }) {
   return (
-    <div style={{ display: 'flex', alignItems: 'center', gap: 8, minHeight: TOUCH_MIN, padding: '0 4px' }}>
-      <span style={{ flex: 1, fontSize: 12, color: DANGER.text }}>{message}</span>
-      <button onClick={onCancel} style={{ minHeight: TOUCH_MIN, padding: '0 12px', borderRadius: RADIUS_SM, border: `1px solid ${COLOR.lineStrong}`, background: 'transparent', color: COLOR.ink, cursor: 'pointer', fontSize: 12, fontFamily: 'inherit' }}>
-        Bekor qilish
-      </button>
-      <button onClick={onConfirm} style={{ minHeight: TOUCH_MIN, padding: '0 12px', borderRadius: RADIUS_SM, border: `1px solid ${DANGER.border}`, background: DANGER.text, color: '#fff', cursor: 'pointer', fontSize: 12, fontWeight: 600, fontFamily: 'inherit' }}>
-        Ha, o‘chirish
-      </button>
+    <div
+      onClick={onClose}
+      style={{
+        position: 'fixed', inset: 0, zIndex: 2000, display: 'flex', alignItems: 'center', justifyContent: 'center',
+        padding: 20, background: 'rgba(35,32,27,.5)', animation: 'fadeIn .18s ease both',
+      }}
+    >
+      <div
+        onClick={(e) => e.stopPropagation()}
+        style={{
+          background: '#fff', borderRadius: RADIUS, boxShadow: '0 30px 70px rgba(35,32,27,.4)',
+          maxWidth: 420, width: '100%', padding: 26, animation: 'modalPop .22s cubic-bezier(.22,.61,.36,1) both',
+        }}
+      >
+        {children}
+      </div>
     </div>
+  );
+}
+
+/** The delete-confirmation shape every bench card needs, built on `Modal`. */
+export function ConfirmModal({ title, message, confirmLabel = 'Ha, o‘chirish', onConfirm, onCancel }: { title: string; message: string; confirmLabel?: string; onConfirm: () => void; onCancel: () => void }) {
+  return (
+    <Modal onClose={onCancel}>
+      <div style={{ ...TYPE.h2, color: COLOR.ink, marginBottom: 8 }}>{title}</div>
+      <div style={{ ...TYPE.small, color: COLOR.inkSoft, lineHeight: 1.5, marginBottom: 22 }}>{message}</div>
+      <div style={{ display: 'flex', gap: 10 }}>
+        <button
+          onClick={onCancel}
+          style={{ flex: 1, minHeight: TOUCH_MIN, padding: '9px', borderRadius: RADIUS_SM, border: `1px solid ${COLOR.lineStrong}`, background: 'transparent', color: COLOR.ink, cursor: 'pointer', fontSize: 13, fontFamily: 'inherit' }}
+        >
+          Bekor qilish
+        </button>
+        <button
+          onClick={onConfirm}
+          style={{ flex: 1, minHeight: TOUCH_MIN, padding: '9px', borderRadius: RADIUS_SM, border: `1px solid ${DANGER.border}`, background: DANGER.text, color: '#fff', cursor: 'pointer', fontSize: 13, fontWeight: 600, fontFamily: 'inherit' }}
+        >
+          {confirmLabel}
+        </button>
+      </div>
+    </Modal>
   );
 }
 
