@@ -32,16 +32,42 @@ const STAGES: { id: Stage; label: string }[] = [
   { id: 'korona', label: 'Korona' },
   { id: 'finish', label: 'Yakunlash' },
 ];
-/** Which roles each trim stage offers. The plinth feet are deliberately not
- *  here: a nalichnik is traced as one outline, and offering separate left and
- *  right feet only invited extra pieces where one would do. */
+/** Which roles each trim stage offers. */
 const STAGE_ROLES: Record<'nalichnik' | 'korona', TrimRole[]> = {
   nalichnik: ['shaft'],
   korona: ['crown'],
 };
+
+/**
+ * A nalichnik is the two vertical casings flanking the door — the left one
+ * and the right one, each running the full height and taking in the plinth
+ * block at its foot. It is NOT a ring: the band across the top is the
+ * korona's, and cutting one shape around the whole door swept that top band,
+ * and usually a strip of the wall past the casing, in with it.
+ *
+ * So the stage opens with exactly these two strips, each traced on its own.
+ */
+const NALICHNIK_SIDES = [
+  { id: 'shaft-left', label: 'Chap nalichnik' },
+  { id: 'shaft-right', label: 'O‘ng nalichnik' },
+] as const;
+
+/** A starting strip down one side of the door, inside the revealed margin.
+ *  `ref` is the leaf's own rect within the padded canvas, so `ref.x` is
+ *  exactly how much photo was revealed beside it. */
+function sideStrip(side: 'left' | 'right', ref: { x: number; y: number; w: number; h: number }) {
+  const reveal = ref.x;
+  return {
+    x: side === 'left' ? reveal * 0.15 : ref.x + ref.w - reveal * 0.1,
+    y: ref.y,
+    w: reveal * 0.95,
+    // Down past the leaf's foot, where the plinth block sits.
+    h: Math.min(ref.h + ref.y * 0.6, 1 - ref.y),
+  };
+}
 const STAGE_HINT: Record<Stage, string> = {
   door: 'Eshik yuzasining 4 burchagini belgilang — ramkani emas, tavaqani.',
-  nalichnik: 'Eshik yonidagi nalichnikni chizing. Bu eshikda bo‘lmasa, o‘tkazib yuboring.',
+  nalichnik: 'Eshikning ikki yonidagi nalichniklarni chizing — tepasi emas, u korona. Bu eshikda bo‘lmasa, o‘tkazib yuboring.',
   korona: 'Eshik tepasidagi koronani chizing. Bu eshikda bo‘lmasa, o‘tkazib yuboring.',
   finish: 'Nomi, ranglari va qaysi qismlar bilan sotilishini belgilang.',
 };
@@ -334,10 +360,22 @@ export function DoorBench({ onDone, edit }: { onDone: () => void; edit?: AdminLe
   };
   const addTrimPiece = (role: TrimRole) => {
     const id = role === 'extra' ? `extra-${Date.now().toString(36)}` : role;
-    const rect = defaultRectFor(role, leafRef, trim);
+    // The crown spans the whole opening, so it is measured off the leaf
+    // itself — not off a shaft piece, which is now only ever one narrow side
+    // strip and would have given a korona the width of one casing.
+    const rect =
+      role === 'crown'
+        ? { x: leafRef.x * 0.1, y: leafRef.y * 0.1, w: 1 - leafRef.x * 0.2, h: leafRef.y * 0.95 }
+        : defaultRectFor(role, leafRef, trim);
     const label = role === 'extra' ? `Boshqa ${trim.filter((t) => t.role === 'extra').length + 1}` : undefined;
     setTrim((ts) => [...ts, { id, role, label, rect, points: seedPoints(rect) }]);
     setActiveTrimId(id);
+  };
+  /** One side's strip, added (or re-added after a delete) on its own. */
+  const addNalichnikSide = (side: (typeof NALICHNIK_SIDES)[number]) => {
+    const rect = sideStrip(side.id === 'shaft-left' ? 'left' : 'right', leafRef);
+    setTrim((ts) => [...ts, { id: side.id, role: 'shaft' as TrimRole, label: side.label, rect, points: seedPoints(rect) }]);
+    setActiveTrimId(side.id);
   };
   const removeTrimPiece = (id: string) => {
     setTrim((ts) => ts.filter((t) => t.id !== id));
@@ -396,6 +434,18 @@ export function DoorBench({ onDone, edit }: { onDone: () => void; edit?: AdminLe
     setShowResult(false);
     const roles: TrimRole[] =
       next === 'nalichnik' ? [...STAGE_ROLES.nalichnik, 'extra'] : next === 'korona' ? STAGE_ROLES.korona : [];
+    // The nalichnik is always the two side strips, so the stage opens with
+    // both already laid down the sides — there is no other shape to choose,
+    // and starting from them is what keeps the top band and the wall out.
+    if (next === 'nalichnik' && !trim.some((t) => roles.includes(t.role))) {
+      const seeded = NALICHNIK_SIDES.map((s) => {
+        const rect = sideStrip(s.id === 'shaft-left' ? 'left' : 'right', leafRef);
+        return { id: s.id, role: 'shaft' as TrimRole, label: s.label, rect, points: seedPoints(rect) };
+      });
+      setTrim((ts) => [...ts, ...seeded]);
+      setActiveTrimId(seeded[0].id);
+      return;
+    }
     setActiveTrimId(trim.find((t) => roles.includes(t.role))?.id ?? null);
   };
 
@@ -749,15 +799,22 @@ export function DoorBench({ onDone, edit }: { onDone: () => void; edit?: AdminLe
                       u sig‘adigan darajada oching, ortiqchasiga emas.
                     </div>
 
-                    {/* Only this stage's own roles — the korona stage must not
-                        offer to add a shaft, or the two would mix again. */}
+                    {/* Only this stage's own pieces — the korona stage must not
+                        offer a side strip, or the two would mix again. */}
                     <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginTop: 10 }}>
-                      {STAGE_ROLES[trimStage!].map((role) => {
-                        const present = trim.some((t) => t.role === role);
-                        return (
-                          <RoleChip key={role} label={ROLE_META[role].label} color={ROLE_META[role].color} disabled={present} onClick={() => addTrimPiece(role)} />
-                        );
-                      })}
+                      {stage === 'nalichnik'
+                        ? NALICHNIK_SIDES.map((s) => (
+                            <RoleChip
+                              key={s.id}
+                              label={s.label}
+                              color={ROLE_META.shaft.color}
+                              disabled={trim.some((t) => t.id === s.id)}
+                              onClick={() => addNalichnikSide(s)}
+                            />
+                          ))
+                        : STAGE_ROLES.korona.map((role) => (
+                            <RoleChip key={role} label={ROLE_META[role].label} color={ROLE_META[role].color} disabled={trim.some((t) => t.role === role)} onClick={() => addTrimPiece(role)} />
+                          ))}
                       {stage === 'nalichnik' && <RoleChip label="Boshqa" color={ROLE_META.extra.color} onClick={() => addTrimPiece('extra')} />}
                     </div>
 
@@ -777,9 +834,11 @@ export function DoorBench({ onDone, edit }: { onDone: () => void; edit?: AdminLe
                         <div style={{ fontSize: 12, color: COLOR.inkSoft, lineHeight: 1.5, marginTop: 6 }}>
                           Mijoz ekraniga aynan shu tushadi; kataklar — bo‘sh joy.
                           Eshikning o‘rni ham bo‘sh: uni eshik rasmi yopadi.
-                          Ya’ni bu yerda faqat eshik atrofidagi halqa qolishi
-                          kerak. Halqaga devor ham tushib qolgan bo‘lsa, o‘sha
-                          devor xona rasmiga ham chiqadi.
+                          {stage === 'korona'
+                            ? ' Ya’ni faqat eshik tepasidagi korona qolishi kerak.'
+                            : ' Ya’ni faqat ikki yondagi nalichnik tasmalari qolishi kerak.'}
+                          {' '}Kesimga eshik atrofidagi devor ham tushib qolgan
+                          bo‘lsa, o‘sha devor xona rasmiga ham chiqadi.
                         </div>
                       </>
                     )}
@@ -803,7 +862,7 @@ export function DoorBench({ onDone, edit }: { onDone: () => void; edit?: AdminLe
                                   style={{ flex: 1, background: 'transparent', border: 'none', color: COLOR.ink, fontSize: 13, fontFamily: 'inherit', padding: 0 }}
                                 />
                               ) : (
-                                <span style={{ flex: 1, fontSize: 13, color: COLOR.ink }}>{meta.label}</span>
+                                <span style={{ flex: 1, fontSize: 13, color: COLOR.ink }}>{t.label ?? meta.label}</span>
                               )}
                               <button
                                 onClick={(e) => { e.stopPropagation(); removeTrimPiece(t.id); }}
