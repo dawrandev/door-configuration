@@ -304,7 +304,8 @@ function recolorTrimFrom(
   const boxKey = boxes.map((b) => `${b.x},${b.y},${b.w},${b.h},${b.points?.map((p) => `${p.x},${p.y}`).join(',') ?? ''},${b.holePoints?.map((p) => `${p.x},${p.y}`).join(',') ?? ''}`).join(';');
   // A null tint is "as photographed" — a distinct cache entry from any real
   // tint, which is always a numeric triple and so can never spell `raw`.
-  return cached(`trim|${id}|${tint ? tint.join(',') : 'raw'}|${source.length}|${boxKey}`, async () => {
+  const punchKey = punch ? `${punch.x},${punch.y},${punch.w},${punch.h}` : '';
+  return cached(`trim|${id}|${tint ? tint.join(',') : 'raw'}|${source.length}|${boxKey}|${punchKey}`, async () => {
     const img = await loadImage(source);
     const { canvas, w, h } = drawAt(img, CASING_W);
 
@@ -399,9 +400,14 @@ export function recolorTrimModel(model: TrimModel, tint: Tint | null): Promise<s
  * approximation drawn separately would be free to disagree with the real
  * masking, which is exactly the gap that let a trace quietly swallow a strip
  * of the wall behind the casing and only reveal it on the room photo.
+ *
+ * `punch` is the door's own rect within the padded photo. The leaf image
+ * always covers exactly that, so whatever the trace put there can never be
+ * seen — and leaving it in the preview showed a whole door where the point
+ * was to judge the thin ring around it.
  */
-export function maskTrim(id: string, source: string, boxes: TrimPiece[]): Promise<string | null> {
-  return recolorTrimFrom(id, source, boxes, null);
+export function maskTrim(id: string, source: string, boxes: TrimPiece[], punch?: { x: number; y: number; w: number; h: number }): Promise<string | null> {
+  return recolorTrimFrom(id, source, boxes, null, punch);
 }
 
 /**

@@ -524,10 +524,14 @@ export function DoorBench({ onDone, edit }: { onDone: () => void; edit?: AdminLe
   // this the bench only ever showed the outline, and a rectangle stretched
   // out to the crown's width quietly took the wall beside the casing with
   // it — which then landed on the room photo as a band of that wall's colour.
+  // The door's own rect is punched back out: the leaf image covers exactly
+  // that on the stage, so anything traced there can never be seen, and
+  // leaving it in showed a whole door where the point is to judge the thin
+  // ring around it. What's left is precisely what reaches the customer.
   const maskedPreview = useRender(
-    () => (showResult && paddedImg && stagePieces.length ? maskTrim(`bench-${stage}`, paddedImg.src, stagePieces.map(toStoredTrim)) : Promise.resolve(null)),
+    () => (showResult && paddedImg && stagePieces.length ? maskTrim(`bench-${stage}`, paddedImg.src, stagePieces.map(toStoredTrim), leafRef) : Promise.resolve(null)),
     '',
-    [showResult, paddedImg, stagePieces, stage]
+    [showResult, paddedImg, stagePieces, stage, margin]
   );
   const tDispW = paddedImg ? paddedImg.width * zoom : 0;
   const tDispH = paddedImg ? paddedImg.height * zoom : 0;
@@ -772,8 +776,10 @@ export function DoorBench({ onDone, edit }: { onDone: () => void; edit?: AdminLe
                         </button>
                         <div style={{ fontSize: 12, color: COLOR.inkSoft, lineHeight: 1.5, marginTop: 6 }}>
                           Mijoz ekraniga aynan shu tushadi; kataklar — bo‘sh joy.
-                          Punktir ichini eshikning o‘zi yopadi. Kesimga devor ham
-                          tushib qolgan bo‘lsa, u xona rasmiga ham chiqadi.
+                          Eshikning o‘rni ham bo‘sh: uni eshik rasmi yopadi.
+                          Ya’ni bu yerda faqat eshik atrofidagi halqa qolishi
+                          kerak. Halqaga devor ham tushib qolgan bo‘lsa, o‘sha
+                          devor xona rasmiga ham chiqadi.
                         </div>
                       </>
                     )}
@@ -815,10 +821,15 @@ export function DoorBench({ onDone, edit }: { onDone: () => void; edit?: AdminLe
                                   Nuqtani <b>ikki marta bosish</b> uni o‘chiradi (kamida 3 ta nuqta qolishi kerak).
                                 </div>
 
-                                <label style={{ display: 'flex', alignItems: 'center', gap: 8, minHeight: TOUCH_MIN, marginTop: 6, fontSize: 12, color: COLOR.ink, cursor: 'pointer' }}>
-                                  <input type="checkbox" checked={!!t.holePoints} onChange={() => toggleTrimHole(t.id)} />
-                                  Ichki chegarani ham (qo‘lda) belgilash
-                                </label>
+                                {/* A korona is a solid moulding sitting above the
+                                    door — it has no hole through it, so the
+                                    option is not offered there at all. */}
+                                {stage !== 'korona' && (
+                                  <label style={{ display: 'flex', alignItems: 'center', gap: 8, minHeight: TOUCH_MIN, marginTop: 6, fontSize: 12, color: COLOR.ink, cursor: 'pointer' }}>
+                                    <input type="checkbox" checked={!!t.holePoints} onChange={() => toggleTrimHole(t.id)} />
+                                    Ichki chegarani ham (qo‘lda) belgilash
+                                  </label>
+                                )}
 
                                 <div style={{ marginTop: 8 }}>
                                   <MoveResize onMove={(dx, dy) => nudgeTrimPiece(t.id, dx, dy)} onSize={() => {}} sizeless />
