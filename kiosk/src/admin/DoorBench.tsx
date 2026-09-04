@@ -307,6 +307,11 @@ export function DoorBench({ onDone, edit }: { onDone: () => void; edit?: AdminLe
     }));
   };
   const onTrimAddPoint = (e: React.PointerEvent) => {
+    // A middle-click-drag pan (the browser's own autoscroll gesture, the
+    // only way to move around a canvas zoomed in past the viewport) must
+    // reach the scrollable container untouched — only the primary button
+    // adds a point here.
+    if (e.button > 0) return;
     if (trimDrag.current) return;
     const active = trim.find((t) => t.id === activeTrimId);
     if (!active) return;

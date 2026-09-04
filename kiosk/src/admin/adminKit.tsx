@@ -136,12 +136,44 @@ export function Pad({ onNudge }: { onNudge: (dx: number, dy: number) => void }) 
  * A drag corner. The grabbable area is TOUCH_MIN (44px) even though the
  * visible dot stays small — a hand marking corners on a photo needs to land
  * on it, not near it.
+ *
+ * Delete-by-double-tap is detected here directly, not via the DOM's native
+ * `dblclick` (synthesised from `click` events, which fire even after a
+ * drag): a hand fine-tuning a point's position with several quick small
+ * grab-and-nudge drags in a row — each one, by itself, well within any
+ * double-click TIME window — must never chain into a delete. So a press
+ * only counts toward a double-tap if it barely moved between down and up;
+ * any real drag resets the count instead of adding to it, regardless of how
+ * quickly it followed the last one.
  */
+const TAP_MOVE_PX = 3;
+const TAP_WINDOW_MS = 350;
 export function Handle({ x, y, color = COLOR.brass, onPointerDown, onDoubleClick }: { x: number; y: number; color?: string; onPointerDown: (e: React.PointerEvent) => void; onDoubleClick?: () => void }) {
+  const downAt = useRef<{ x: number; y: number } | null>(null);
+  const lastTap = useRef(0);
+  const handleDown = (e: React.PointerEvent) => {
+    // Only the primary button starts a drag — a middle-click-drag pan (the
+    // browser's own autoscroll gesture) must reach the scrollable container
+    // untouched, not register as a press here.
+    if (e.button > 0) return;
+    e.stopPropagation();
+    downAt.current = { x: e.clientX, y: e.clientY };
+    onPointerDown(e);
+  };
+  const handleUp = (e: React.PointerEvent) => {
+    const start = downAt.current;
+    downAt.current = null;
+    if (!start || !onDoubleClick) return;
+    const moved = Math.hypot(e.clientX - start.x, e.clientY - start.y);
+    if (moved > TAP_MOVE_PX) { lastTap.current = 0; return; } // a real drag, not a tap — never chains into a delete
+    const now = performance.now();
+    if (now - lastTap.current < TAP_WINDOW_MS) { onDoubleClick(); lastTap.current = 0; }
+    else lastTap.current = now;
+  };
   return (
     <div
-      onPointerDown={onPointerDown}
-      onDoubleClick={onDoubleClick}
+      onPointerDown={handleDown}
+      onPointerUp={handleUp}
       style={{ position: 'absolute', left: x - TOUCH_MIN / 2, top: y - TOUCH_MIN / 2, width: TOUCH_MIN, height: TOUCH_MIN, display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'grab', touchAction: 'none' }}
     >
       <div style={{ width: 20, height: 20, borderRadius: 999, background: color, border: '2px solid #fff', boxShadow: '0 1px 6px rgba(35,32,27,.35)', pointerEvents: 'none' }} />

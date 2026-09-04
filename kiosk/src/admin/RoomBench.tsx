@@ -258,6 +258,11 @@ export function RoomBench({ onDone, edit }: { onDone: () => void; edit?: AdminRo
    *  edge and an inner hole on screen, the click goes to whichever edge it
    *  actually landed closest to. */
   const onAddPoint = (e: React.PointerEvent) => {
+    // A middle-click-drag pan (the browser's own autoscroll gesture, the
+    // only way to move around a canvas zoomed in past the viewport) must
+    // reach the scrollable container untouched — only the primary button
+    // adds a point here.
+    if (e.button > 0) return;
     if (drag.current) return; // a handle's own onPointerDown already claimed this gesture
     const active = trim.find((t) => t.id === activeTrimId);
     if (!active) return;
