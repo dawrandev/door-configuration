@@ -174,9 +174,16 @@ export function Handle({ x, y, color = COLOR.brass, onPointerDown, onDoubleClick
     <div
       onPointerDown={handleDown}
       onPointerUp={handleUp}
-      style={{ position: 'absolute', left: x - TOUCH_MIN / 2, top: y - TOUCH_MIN / 2, width: TOUCH_MIN, height: TOUCH_MIN, display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'grab', touchAction: 'none' }}
+      style={{ position: 'absolute', left: x - TOUCH_MIN / 2, top: y - TOUCH_MIN / 2, width: TOUCH_MIN, height: TOUCH_MIN, display: 'flex', alignItems: 'center', justifyContent: 'center', touchAction: 'none' }}
     >
-      <div style={{ width: 20, height: 20, borderRadius: 999, background: color, border: '2px solid #fff', boxShadow: '0 1px 6px rgba(35,32,27,.35)', pointerEvents: 'none' }} />
+      {/* The hand cursor lives on the visible dot alone, not the full 44px
+          hit-zone around it — that invisible margin is for a finger or an
+          imprecise click to still land on the point, not for the cursor to
+          announce "grabbable" (and visually cover the dot) well before the
+          pointer is actually over it. `pointerEvents: auto` here just makes
+          this the hover target for the cursor; the click/drag itself still
+          resolves on the outer div either way, since it bubbles there. */}
+      <div style={{ width: 20, height: 20, borderRadius: 999, background: color, border: '2px solid #fff', boxShadow: '0 1px 6px rgba(35,32,27,.35)', cursor: 'grab', pointerEvents: 'auto' }} />
     </div>
   );
 }
