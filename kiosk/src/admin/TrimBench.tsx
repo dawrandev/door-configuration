@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { COLOR, RADIUS, RADIUS_SM, TYPE } from '../design/tokens';
-import { rectify, type Pt, type Margin } from './rectify';
+import { rectify, encodeAlpha, type Pt, type Margin } from './rectify';
 import { saveTrimModel, type AdminTrim } from './adminStore';
 import {
   Panel, PanelBody, PanelFooter, Label, Section, inp, AdminPrimaryButton, Seg, Handle, Pad, DANGER, useToast, ROLE_ORDER, ROLE_META, RoleChip, MoveResize,
@@ -133,7 +133,10 @@ export function TrimBench({ onDone, edit }: { onDone: () => void; edit?: AdminTr
         const c = rectify(img, corners as [Pt, Pt, Pt, Pt], 500, marginObj);
         const el = new Image();
         el.onload = () => { if (live) setPaddedImg(el); };
-        el.src = c.toDataURL('image/jpeg', 0.85);
+        // Alpha-preserving, so what gets traced on is what gets published —
+        // a JPEG here painted the un-photographed margin solid black and the
+        // trace was made against a lie.
+        el.src = encodeAlpha(c, 0.85);
       } catch { /* a degenerate quad mid-drag — ignore, the next frame recovers */ }
     }, 120);
     return () => { live = false; window.clearTimeout(t); };
@@ -217,7 +220,7 @@ export function TrimBench({ onDone, edit }: { onDone: () => void; edit?: AdminTr
     small.width = Math.round(tc.width * scale);
     small.height = Math.round(tc.height * scale);
     small.getContext('2d')!.drawImage(tc, 0, 0, small.width, small.height);
-    const trimSource = small.toDataURL('image/jpeg', 0.85);
+    const trimSource = encodeAlpha(small, 0.85);
 
     saveTrimModel({
       id: edit?.id ?? 'a-' + Date.now().toString(36),

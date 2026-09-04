@@ -158,6 +158,22 @@ export function rectify(img: HTMLImageElement | HTMLCanvasElement, corners: [Pt,
 }
 
 /**
+ * Encode a canvas that may carry transparency.
+ *
+ * `rectify` leaves margin pixels transparent wherever the photograph simply
+ * doesn't reach (see the two `continue`s above) — that is the honest answer,
+ * but it only survives a format with an alpha channel. A canvas exported to
+ * JPEG is composited onto solid BLACK first, which turned every
+ * un-photographed margin pixel into an opaque black bar once the trim was
+ * masked and recoloured on the client. WebP keeps alpha at JPEG-like size;
+ * PNG is the fallback for a browser that cannot encode it.
+ */
+export function encodeAlpha(canvas: HTMLCanvasElement, quality = 0.85): string {
+  const webp = canvas.toDataURL('image/webp', quality);
+  return webp.startsWith('data:image/webp') ? webp : canvas.toDataURL('image/png');
+}
+
+/**
  * Take the handle off a rectified leaf, in place.
  *
  * Same idea as the offline tool: the hardware sits on a plain vertical stile, so

@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { COLOR, RADIUS, RADIUS_SM, TOUCH_MIN, TYPE } from '../design/tokens';
-import { rectify, stripHandle, neutraliseWhite, type Pt, type Margin } from './rectify';
+import { rectify, stripHandle, neutraliseWhite, encodeAlpha, type Pt, type Margin } from './rectify';
 import { saveLeaf, saveTrimModel, mergeColors, saveColor, type AdminLeaf, type AdminColor, type AdminTrim } from './adminStore';
 import { COLORS as BASE_COLORS, type DoorColor } from '../catalog/colors';
 import {
@@ -249,7 +249,10 @@ export function DoorBench({ onDone, edit }: { onDone: () => void; edit?: AdminLe
         const c = rectify(img, corners as [Pt, Pt, Pt, Pt], 500, marginObj);
         const el = new Image();
         el.onload = () => { if (live) setPaddedImg(el); };
-        el.src = c.toDataURL('image/jpeg', 0.85);
+        // Alpha-preserving, so what gets traced on is what gets published —
+        // a JPEG here painted the un-photographed margin solid black and the
+        // trace was made against a lie.
+        el.src = encodeAlpha(c, 0.85);
       } catch { /* a degenerate quad mid-drag — ignore, the next frame recovers */ }
     }, 120);
     return () => { live = false; window.clearTimeout(t); };
@@ -401,7 +404,7 @@ export function DoorBench({ onDone, edit }: { onDone: () => void; edit?: AdminLe
       tsmall.width = Math.round(tc.width * tscale);
       tsmall.height = Math.round(tc.height * tscale);
       tsmall.getContext('2d')!.drawImage(tc, 0, 0, tsmall.width, tsmall.height);
-      const trimSource = tsmall.toDataURL('image/jpeg', 0.85);
+      const trimSource = encodeAlpha(tsmall, 0.85);
       const trimCorners = corners.map((c) => ({ x: +(c.x / img.width).toFixed(4), y: +(c.y / img.height).toFixed(4) }));
 
       const nalichnikPieces = trim.filter((t) => NALICHNIK_ROLES.includes(t.role));
