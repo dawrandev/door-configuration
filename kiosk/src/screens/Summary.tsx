@@ -1,7 +1,7 @@
 import { COLOR, RADIUS, TYPE } from '../design/tokens';
 import { T, tr } from '../i18n/strings';
 import { TRIM_DEFAULT } from '../catalog/colors';
-import { useKiosk, stepLabel } from '../store/useKiosk';
+import { useKiosk, stepLabel, useStepFlags } from '../store/useKiosk';
 import { Eyebrow, PrimaryButton, TopBar } from '../ui/controls';
 import { WallStage } from '../ui/WallStage';
 
@@ -20,22 +20,26 @@ export function Summary() {
   const leaves = useKiosk((s) => s.leaves);
   const rooms = useKiosk((s) => s.rooms);
   const trims = useKiosk((s) => s.trims);
-  const trimModelId = useKiosk((s) => s.trimModelId);
+  const nalichnikId = useKiosk((s) => s.nalichnikId);
+  const koronaId = useKiosk((s) => s.koronaId);
   const cycleLang = useKiosk((s) => s.cycleLang);
   const back = useKiosk((s) => s.back);
   const reset = useKiosk((s) => s.reset);
+  const stepFlags = useStepFlags();
 
   const room = rooms.find((r) => r.id === roomId) ?? rooms[0];
   const leaf = leaves.find((l) => l.id === leafId) ?? leaves[0];
-  const trimModel = trimModelId !== TRIM_DEFAULT ? trims.find((t) => t.id === trimModelId) : undefined;
+  const nalichnikModel = nalichnikId !== TRIM_DEFAULT ? trims.find((t) => t.id === nalichnikId) : undefined;
+  const koronaModel = koronaId !== TRIM_DEFAULT ? trims.find((t) => t.id === koronaId) : undefined;
 
   const rows = [
     { label: tr(T.wall, lang), value: tr(room.name, lang) },
     { label: tr(T.model, lang), value: tr(leaf.name, lang) },
     // Only shown when the customer actually picked an independent design —
-    // TRIM_DEFAULT (or a stale/removed id) means the door's own trim or the
-    // room's is showing, already implied by the two rows above.
-    ...(trimModel ? [{ label: tr(T.trim, lang), value: tr(trimModel.name, lang) }] : []),
+    // TRIM_DEFAULT (or a stale/removed id) means the room's own trim is
+    // showing, already implied by the room row above.
+    ...(nalichnikModel ? [{ label: tr(T.nalichnik, lang), value: tr(nalichnikModel.name, lang) }] : []),
+    ...(koronaModel ? [{ label: tr(T.korona, lang), value: tr(koronaModel.name, lang) }] : []),
   ];
 
   return (
@@ -47,7 +51,7 @@ export function Summary() {
       </WallStage>
 
       <div className="dc-panel" style={{ background: COLOR.paper, padding: 'clamp(24px, 3vw, 40px)', minHeight: 0 }}>
-        <Eyebrow>{tr(T.step, lang)} · {stepLabel('summary', trims.length > 0)}</Eyebrow>
+        <Eyebrow>{tr(T.step, lang)} · {stepLabel('summary', stepFlags)}</Eyebrow>
         <h2 style={{ ...TYPE.h1, margin: '10px 0 0', color: COLOR.ink }}>{tr(T.sumt, lang)}</h2>
 
         <div className="scr" style={{ flex: 1, overflowY: 'auto', padding: '20px 0', minHeight: 80 }}>

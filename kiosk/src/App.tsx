@@ -4,7 +4,7 @@ import { Attract } from './screens/Attract';
 import { RoomStep } from './screens/RoomStep';
 import { ColorStep } from './screens/ColorStep';
 import { DoorStep } from './screens/DoorStep';
-import { TrimStep } from './screens/TrimStep';
+import { NalichnikStep, KoronaStep } from './screens/TrimPickStep';
 import { Summary } from './screens/Summary';
 
 const SCREENS = {
@@ -12,7 +12,8 @@ const SCREENS = {
   room: RoomStep,
   color: ColorStep,
   door: DoorStep,
-  trim: TrimStep,
+  nalichnik: NalichnikStep,
+  korona: KoronaStep,
   summary: Summary,
 } as const;
 

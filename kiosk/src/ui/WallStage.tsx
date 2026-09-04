@@ -2,7 +2,7 @@ import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { useKiosk } from '../store/useKiosk';
 import { HANDLE_PLACE, HANDLES } from '../catalog/handles.generated';
 import { tintFor, TRIM_SAME, TRIM_DEFAULT, type Tint } from '../catalog/colors';
-import { recolorTrim, recolorLeaf, recolorLeafTrim, recolorTrimModel, useRender } from '../render/recolor';
+import { recolorTrim, recolorLeaf, recolorTrimModel, useRender } from '../render/recolor';
 import type { Leaf, TrimModel } from '../catalog/types';
 import { useElementSize } from './useElementSize';
 
@@ -33,7 +33,8 @@ export function WallStage({ onSwipe, children }: { onSwipe?: (delta: number) => 
   const leafId = useKiosk((s) => s.leafId);
   const colorId = useKiosk((s) => s.colorId);
   const trimColorId = useKiosk((s) => s.trimColorId);
-  const trimModelId = useKiosk((s) => s.trimModelId);
+  const nalichnikId = useKiosk((s) => s.nalichnikId);
+  const koronaId = useKiosk((s) => s.koronaId);
   const trims = useKiosk((s) => s.trims);
   const leaves = useKiosk((s) => s.leaves);
   const rooms = useKiosk((s) => s.rooms);
@@ -82,18 +83,21 @@ export function WallStage({ onSwipe, children }: { onSwipe?: (delta: number) => 
     return { ...room, trimBoxes };
   }, [room, leaf.trimRoles]);
 
-  // Which trim actually shows, priority customer pick > door's own > room's
-  // — resolved ONCE here and handed to DoorLayer, so both this component's
-  // own room-trim suppression and DoorLayer's render agree on the same
-  // answer. An id not in `trims` (stale, removed at the bench) resolves to
-  // undefined exactly like TRIM_DEFAULT — nothing to clear on navigation.
-  const trimModel = trimModelId !== TRIM_DEFAULT ? trims.find((t) => t.id === trimModelId) : undefined;
+  // Nalichnik and korona are two fully independent picks — resolved ONCE
+  // here and handed to DoorLayer, so both this component's own room-trim
+  // suppression and DoorLayer's render agree on the same answer. An id not
+  // in `trims` (stale, removed at the bench) resolves to undefined exactly
+  // like TRIM_DEFAULT — nothing to clear on navigation.
+  const nalichnikModel = nalichnikId !== TRIM_DEFAULT ? trims.find((t) => t.id === nalichnikId) : undefined;
+  const koronaModel = koronaId !== TRIM_DEFAULT ? trims.find((t) => t.id === koronaId) : undefined;
 
-  // A door's own casing, or a customer-picked design, replaces the room's
-  // entirely — showing more than one at once would read as different
-  // casings overlapping. Skipping the room-trim render for it (rather than
-  // just hiding the layer) also avoids deriving a paint no one will see.
-  const hasOwnTrim = !!(trimModel || (leaf.trimSource && leaf.trimBoxes?.length));
+  // The moment EITHER axis is customer-picked, the room's own trim is
+  // suppressed entirely — showing it alongside a picked design would read
+  // as two different casings overlapping. Left on "Standart" for both,
+  // the room's own trim (filtered by the door's trimRoles) still renders
+  // exactly as it always has. Skipping the render for it (rather than just
+  // hiding the layer) also avoids deriving a paint no one will see.
+  const hasOwnTrim = !!(nalichnikModel || koronaModel);
   const trimUrl = useRender(
     () => (trimPaint && !hasOwnTrim ? recolorTrim(trimRoom, trimPaint) : Promise.resolve(null)),
     '',
@@ -158,7 +162,7 @@ export function WallStage({ onSwipe, children }: { onSwipe?: (delta: number) => 
       />
 
       {width > 0 && layers.map((l, i) => (
-        <DoorLayer key={l.key} leaf={l.leaf} paint={paint} paintKey={colorId} trimPaint={trimPaint} trimModel={trimModel} geom={geom} lightTint={lightTint} fade={i === layers.length - 1 && layers.length > 1} />
+        <DoorLayer key={l.key} leaf={l.leaf} paint={paint} paintKey={colorId} trimPaint={trimPaint} nalichnikModel={nalichnikModel} koronaModel={koronaModel} geom={geom} lightTint={lightTint} fade={i === layers.length - 1 && layers.length > 1} />
       ))}
       {children}
     </div>
@@ -174,7 +178,7 @@ export function WallStage({ onSwipe, children }: { onSwipe?: (delta: number) => 
  * shouts louder than the width difference it avoids. A door and its opening are
  * made for each other in reality, so filling is the honest composite.
  */
-function DoorLayer({ leaf, paint, paintKey, trimPaint, trimModel, geom, lightTint, fade }: { leaf: Leaf; paint: Tint | null; paintKey: string; trimPaint: Tint | null; trimModel?: TrimModel; geom: { ox: number; oy: number; ow: number; oh: number }; lightTint: string; fade: boolean }) {
+function DoorLayer({ leaf, paint, paintKey, trimPaint, nalichnikModel, koronaModel, geom, lightTint, fade }: { leaf: Leaf; paint: Tint | null; paintKey: string; trimPaint: Tint | null; nalichnikModel?: TrimModel; koronaModel?: TrimModel; geom: { ox: number; oy: number; ow: number; oh: number }; lightTint: string; fade: boolean }) {
   const { ox, oy, ow, oh } = geom;
   const [op, setOp] = useState(fade ? 0 : 1);
   useEffect(() => {
@@ -185,21 +189,6 @@ function DoorLayer({ leaf, paint, paintKey, trimPaint, trimModel, geom, lightTin
   // The photographed door while the recolour renders — a frame of white is
   // quieter than a frame of nothing.
   const url = useRender(() => (paint ? recolorLeaf(leaf, paint) : Promise.resolve(leaf.image)), leaf.image, [leaf, paintKey]);
-
-  // Priority: a customer-picked design (independent of this door) > the
-  // door's own traced casing (DoorBench's "O'z nalichnigini chizish") — both
-  // carried right here, inside the same fading layer as the leaf itself, so
-  // whichever is active crosses over together with the leaf.
-  const ownMargin = trimModel
-    ? trimModel.trimMargin
-    : leaf.trimMargin && leaf.trimSource && leaf.trimBoxes?.length
-      ? leaf.trimMargin
-      : null;
-  const trimUrl = useRender(
-    () => (ownMargin && trimPaint ? (trimModel ? recolorTrimModel(trimModel, trimPaint) : recolorLeafTrim(leaf, trimPaint)) : Promise.resolve(null)),
-    '',
-    [leaf, trimModel, trimPaint]
-  );
 
   const handle =
     leaf.handleSwappable && leaf.handleAt
@@ -219,26 +208,14 @@ function DoorLayer({ leaf, paint, paintKey, trimPaint, trimModel, geom, lightTin
 
   return (
     <div style={{ position: 'absolute', left: ox, top: oy, width: ow, height: oh, opacity: op, transition: `opacity 340ms ${EASE}`, willChange: 'opacity' }}>
-      {/* The active trim — a customer's own pick, or else the door's own —
-          sized off the SAME ow/oh the leaf itself uses, expanded by its own
-          margin on each side, and BEHIND the leaf so the leaf's own edge
-          still covers the casing's inner lip exactly like a room's trim
-          does. */}
-      {ownMargin && trimUrl && (
-        <img
-          src={trimUrl}
-          alt=""
-          draggable={false}
-          style={{
-            position: 'absolute',
-            left: -ownMargin.left * ow,
-            top: -ownMargin.top * oh,
-            width: ow * (1 + ownMargin.left + ownMargin.right),
-            height: oh * (1 + ownMargin.top + ownMargin.bottom),
-            pointerEvents: 'none',
-          }}
-        />
-      )}
+      {/* The two independently-picked designs — sized off the SAME ow/oh the
+          leaf itself uses, each expanded by ITS OWN margin, and BEHIND the
+          leaf so the leaf's own edge still covers the casing's inner lip
+          exactly like the room's trim does. Two separate layers, since a
+          nalichnik and a korona pick are two separate photos with two
+          separate margins — neither implies anything about the other. */}
+      <TrimLayer model={nalichnikModel} trimPaint={trimPaint} ow={ow} oh={oh} />
+      <TrimLayer model={koronaModel} trimPaint={trimPaint} ow={ow} oh={oh} />
       <img src={url} alt="" draggable={false} style={{ width: '100%', height: '100%', objectFit: 'fill', display: 'block', position: 'relative' }} />
       <div style={{ position: 'absolute', inset: 0, background: lightTint, mixBlendMode: 'multiply', pointerEvents: 'none' }} />
       {/* The other half of the same contact shadow: the door's own base picks
@@ -247,5 +224,33 @@ function DoorLayer({ leaf, paint, paintKey, trimPaint, trimModel, geom, lightTin
       <div style={{ position: 'absolute', left: 0, right: 0, bottom: 0, height: '2.5%', background: 'linear-gradient(to bottom, rgba(0,0,0,0), rgba(0,0,0,.22))', mixBlendMode: 'multiply', pointerEvents: 'none' }} />
       {handle && <img src={HANDLE_IMAGE} alt="" draggable={false} style={{ position: 'absolute', ...handle, transformOrigin: 'center', pointerEvents: 'none' }} />}
     </div>
+  );
+}
+
+/** One independently-picked trim design (nalichnik OR korona), or nothing
+ *  when that axis is left on "Standart" — its own component so each axis
+ *  gets a stable hook regardless of whether the other one is set. */
+function TrimLayer({ model, trimPaint, ow, oh }: { model?: TrimModel; trimPaint: Tint | null; ow: number; oh: number }) {
+  const trimUrl = useRender(
+    () => (model && trimPaint ? recolorTrimModel(model, trimPaint) : Promise.resolve(null)),
+    '',
+    [model, trimPaint]
+  );
+  if (!model || !trimUrl) return null;
+  const m = model.trimMargin;
+  return (
+    <img
+      src={trimUrl}
+      alt=""
+      draggable={false}
+      style={{
+        position: 'absolute',
+        left: -m.left * ow,
+        top: -m.top * oh,
+        width: ow * (1 + m.left + m.right),
+        height: oh * (1 + m.top + m.bottom),
+        pointerEvents: 'none',
+      }}
+    />
   );
 }

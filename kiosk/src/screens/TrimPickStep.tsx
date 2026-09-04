@@ -2,28 +2,33 @@ import { useEffect, useRef } from 'react';
 import { COLOR, RADIUS, TYPE } from '../design/tokens';
 import { TRIM_DEFAULT } from '../catalog/colors';
 import { T, tr } from '../i18n/strings';
-import { useKiosk, stepLabel } from '../store/useKiosk';
+import { useKiosk, stepLabel, useStepFlags, type Screen } from '../store/useKiosk';
 import { Ornament } from '../ui/Ornament';
 import { PrimaryButton, StepHeader, TopBar } from '../ui/controls';
 import { WallStage } from '../ui/WallStage';
 
 /**
- * Step 3 (only when at least one design is published) — the nalichnik/korona
- * DESIGN, independent of which room or door was chosen. A close structural
+ * The nalichnik and korona DESIGN steps — two fully independent picks,
+ * each its own step, neither implied by the door or by the other. Both
+ * only appear once at least one design in that category is published; a
+ * category left empty just isn't a step (see useKiosk.ts's `SKIP`/`walk`).
+ *
+ * One component drives both — `category` says which. A close structural
  * copy of DoorStep's carousel (same track/centring/tile chrome), with one
  * addition: a "Standart" tile that is always first and always present,
- * selecting TRIM_DEFAULT — today's behaviour (the door's own trim, or the
- * room's), unchanged for anyone who leaves it there.
+ * selecting TRIM_DEFAULT — the room's own trim, unchanged for anyone who
+ * leaves it there.
  *
- * `WallStage` is used the same way ColorStep's is (no `onSwipe`) — the
- * screen right before colour, so there's no ambiguity with the door
- * carousel's own swipe gesture on the screen before this one.
+ * `WallStage` is used the same way ColorStep's is (no `onSwipe`) — there's
+ * no door carousel on either of these screens to clash gestures with.
  */
-export function TrimStep() {
+function TrimPickStep({ category }: { category: 'nalichnik' | 'korona' }) {
   const lang = useKiosk((s) => s.lang);
-  const trimModelId = useKiosk((s) => s.trimModelId);
+  const value = useKiosk((s) => (category === 'nalichnik' ? s.nalichnikId : s.koronaId));
   const trims = useKiosk((s) => s.trims);
-  const setTrimModel = useKiosk((s) => s.setTrimModel);
+  const setNalichnik = useKiosk((s) => s.setNalichnik);
+  const setKorona = useKiosk((s) => s.setKorona);
+  const setValue = category === 'nalichnik' ? setNalichnik : setKorona;
   const cycleLang = useKiosk((s) => s.cycleLang);
   const back = useKiosk((s) => s.back);
   const next = useKiosk((s) => s.next);
@@ -33,11 +38,15 @@ export function TrimStep() {
   const dragging = useRef(false);
   const programmatic = useRef(false);
 
-  // "Standart" plus every published design — the same list order the
-  // carousel's centring math indexes into.
+  const categoryItems = trims.filter((t) => t.category === category);
+  const { hasNalichnik, hasKorona } = useStepFlags();
+  const screen: Screen = category;
+
+  // "Standart" plus every published design in THIS category — the same
+  // list order the carousel's centring math indexes into.
   const items: { id: string; label: string; image: string | null }[] = [
     { id: TRIM_DEFAULT, label: tr(T.trimdefault, lang), image: null },
-    ...trims.map((t) => ({ id: t.id, label: tr(t.name, lang), image: t.trimSource })),
+    ...categoryItems.map((t) => ({ id: t.id, label: tr(t.name, lang), image: t.trimSource })),
   ];
 
   const pickCentred = () => {
@@ -52,7 +61,7 @@ export function TrimStep() {
       if (d < bestDist) { bestDist = d; best = i; }
     });
     const id = items[best]?.id;
-    if (id && id !== trimModelId) setTrimModel(id);
+    if (id && id !== value) setValue(id);
   };
 
   const onScroll = () => {
@@ -69,7 +78,7 @@ export function TrimStep() {
     if (dragging.current) return;
     const el = track.current;
     if (!el) return;
-    const i = items.findIndex((it) => it.id === trimModelId);
+    const i = items.findIndex((it) => it.id === value);
     const child = el.children[i] as HTMLElement | undefined;
     if (!child) return;
     const target = child.offsetLeft + child.offsetWidth / 2 - el.clientWidth / 2;
@@ -78,7 +87,9 @@ export function TrimStep() {
       el.scrollTo({ left: target, behavior: 'smooth' });
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [trimModelId]);
+  }, [value]);
+
+  const title = category === 'nalichnik' ? tr(T.stepnalichnik, lang) : tr(T.stepkorona, lang);
 
   return (
     <div className="dc-screen" style={{ animation: 'fadeUp .5s cubic-bezier(.22,.61,.36,1) both' }}>
@@ -89,7 +100,7 @@ export function TrimStep() {
       </WallStage>
 
       <div className="dc-panel" style={{ background: COLOR.paper, padding: 'clamp(24px, 3vw, 40px)' }}>
-        <StepHeader kicker={tr(T.step, lang)} step={stepLabel('trim', true)} title={tr(T.steptrim, lang)} />
+        <StepHeader kicker={tr(T.step, lang)} step={stepLabel(screen, { hasNalichnik, hasKorona })} title={title} />
 
         <div style={{ flex: 1 }} />
 
@@ -108,11 +119,11 @@ export function TrimStep() {
             }}
           >
             {items.map((it) => {
-              const selected = it.id === trimModelId;
+              const selected = it.id === value;
               return (
                 <button
                   key={it.id}
-                  onClick={() => setTrimModel(it.id)}
+                  onClick={() => setValue(it.id)}
                   style={{
                     flex: '0 0 var(--tile)',
                     scrollSnapAlign: 'center',
@@ -167,4 +178,11 @@ export function TrimStep() {
       </div>
     </div>
   );
+}
+
+export function NalichnikStep() {
+  return <TrimPickStep category="nalichnik" />;
+}
+export function KoronaStep() {
+  return <TrimPickStep category="korona" />;
 }

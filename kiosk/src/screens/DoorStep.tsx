@@ -4,7 +4,7 @@ import { tintFor } from '../catalog/colors';
 import { recolorLeaf, useRender } from '../render/recolor';
 import type { Leaf } from '../catalog/types';
 import { T, tr } from '../i18n/strings';
-import { useKiosk, stepLabel } from '../store/useKiosk';
+import { useKiosk, stepLabel, useStepFlags } from '../store/useKiosk';
 import { Ornament } from '../ui/Ornament';
 import { PrimaryButton, StepHeader, TopBar } from '../ui/controls';
 import { WallStage } from '../ui/WallStage';
@@ -28,7 +28,7 @@ export function DoorStep() {
   const lang = useKiosk((s) => s.lang);
   const leafId = useKiosk((s) => s.leafId);
   const LEAVES = useKiosk((s) => s.leaves);
-  const hasTrim = useKiosk((s) => s.trims.length > 0);
+  const stepFlags = useStepFlags();
   const setLeaf = useKiosk((s) => s.setLeaf);
   const stepLeaf = useKiosk((s) => s.stepLeaf);
   const cycleLang = useKiosk((s) => s.cycleLang);
@@ -96,7 +96,7 @@ export function DoorStep() {
 
       <div className="dc-panel" style={{ background: COLOR.paper, padding: 'clamp(24px, 3vw, 40px)' }}>
         <div style={{ display: 'flex', alignItems: 'flex-end', justifyContent: 'space-between', gap: 16 }}>
-          <StepHeader kicker={tr(T.step, lang)} step={stepLabel('door', hasTrim)} title={tr(T.step2, lang)} />
+          <StepHeader kicker={tr(T.step, lang)} step={stepLabel('door', stepFlags)} title={tr(T.step2, lang)} />
           <div style={{ ...TYPE.small, color: COLOR.inkSoft, textAlign: 'right' }}>{tr(T.swipehint, lang)}</div>
         </div>
 

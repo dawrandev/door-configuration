@@ -43,13 +43,16 @@ export const T = {
 
   step1: { uz: 'Xonangizni tanlang', kk: 'Bólmeńizdi saylań', ru: 'Выберите комнату' },
   step2: { uz: 'Eshigingizni tanlang', kk: 'Esikti saylań', ru: 'Выберите дверь' },
-  steptrim: { uz: 'Nalichnik va koronani tanlang', kk: 'Naličnik hám koronanı saylań', ru: 'Выберите наличник и корону' },
+  stepnalichnik: { uz: 'Nalichnikni tanlang', kk: 'Naličnikti saylań', ru: 'Выберите наличник' },
+  stepkorona: { uz: 'Koronani tanlang', kk: 'Koronanı saylań', ru: 'Выберите корону' },
   step2c: { uz: 'Eshik rangini tanlang', kk: 'Esik reńin saylań', ru: 'Выберите цвет двери' },
   step3: { uz: 'Eshigingizni sozlang', kk: 'Esikti sazlań', ru: 'Настройте дверь' },
   sumt: { uz: "Yakuniy ko'rinish", kk: 'Juwmaqlaw', ru: 'Итог' },
 
   color: { uz: 'Rang', kk: 'Reń', ru: 'Цвет' },
   trim: { uz: 'Nalichnik va korona', kk: 'Naličnik hám korona', ru: 'Наличник и корона' },
+  nalichnik: { uz: 'Nalichnik', kk: 'Naličnik', ru: 'Наличник' },
+  korona: { uz: 'Korona', kk: 'Korona', ru: 'Корона' },
   trimsame: { uz: 'Eshik rangida', kk: 'Esik reńinde', ru: 'В цвет двери' },
   trimdefault: { uz: 'Standart', kk: 'Standart', ru: 'Стандартный' },
   colornote: {

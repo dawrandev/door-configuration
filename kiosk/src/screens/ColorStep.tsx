@@ -1,7 +1,7 @@
 import { COLOR, TYPE } from '../design/tokens';
 import { TRIM_SAME } from '../catalog/colors';
 import { T, tr } from '../i18n/strings';
-import { useKiosk, stepLabel } from '../store/useKiosk';
+import { useKiosk, stepLabel, useStepFlags } from '../store/useKiosk';
 import { Ornament } from '../ui/Ornament';
 import { PrimaryButton, StepHeader, TopBar } from '../ui/controls';
 import { WallStage } from '../ui/WallStage';
@@ -27,7 +27,7 @@ export function ColorStep() {
   const colors = useKiosk((s) => s.colors);
   const colorId = useKiosk((s) => s.colorId);
   const trimColorId = useKiosk((s) => s.trimColorId);
-  const hasTrim = useKiosk((s) => s.trims.length > 0);
+  const stepFlags = useStepFlags();
   const setColor = useKiosk((s) => s.setColor);
   const setTrimColor = useKiosk((s) => s.setTrimColor);
   const cycleLang = useKiosk((s) => s.cycleLang);
@@ -46,7 +46,7 @@ export function ColorStep() {
       </WallStage>
 
       <div className="dc-panel" style={{ background: COLOR.paper, padding: 'clamp(24px, 3vw, 40px)' }}>
-        <StepHeader kicker={tr(T.step, lang)} step={stepLabel('color', hasTrim)} title={tr(T.step2c, lang)} />
+        <StepHeader kicker={tr(T.step, lang)} step={stepLabel('color', stepFlags)} title={tr(T.step2c, lang)} />
 
         <div style={{ flex: 1, display: 'flex', alignItems: 'center' }}>
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 'clamp(14px, 2vw, 24px)', width: '100%' }}>

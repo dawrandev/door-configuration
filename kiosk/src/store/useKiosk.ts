@@ -34,22 +34,24 @@ const colorAllowed = (leaf: Leaf | undefined, colorId: string) =>
  * leaf with white paint read as fake) and price with it — this runs on a touch
  * monitor beside a salesperson, to show doors, not to take orders.
  */
-export type Screen = 'attract' | 'room' | 'door' | 'trim' | 'color' | 'summary';
+export type Screen = 'attract' | 'room' | 'door' | 'nalichnik' | 'korona' | 'color' | 'summary';
 
 /**
  * Forward moves only. Back is derived — see `back()`.
  *
  * Door before colour, not colour before door: a colour is a paint a specific
  * model is sold in, not a universal swatch, so the model has to be chosen
- * before its colours mean anything. Trim design sits between the two: it's
- * an independent choice, but only worth showing once a customer already has
- * a door standing in the room to see it against.
+ * before its colours mean anything. Nalichnik and korona sit between the
+ * two, as two fully independent picks of their own — neither is implied by
+ * the door, or by each other; a customer who wants the room's own casing
+ * for both simply leaves them on "Standart".
  */
 const NEXT: Record<Screen, Screen | null> = {
   attract: 'room',
   room: 'door',
-  door: 'trim',
-  trim: 'color',
+  door: 'nalichnik',
+  nalichnik: 'korona',
+  korona: 'color',
   color: 'summary',
   summary: null,
 };
@@ -58,20 +60,43 @@ const PREV: Record<Screen, Screen | null> = {
   attract: null,
   room: 'attract',
   door: 'room',
-  trim: 'door',
-  color: 'trim',
+  nalichnik: 'door',
+  korona: 'nalichnik',
+  color: 'korona',
   summary: 'color',
 };
 
+/** Whether a screen should be skipped — no nalichnik designs published
+ *  means nothing to choose there, so nothing to show; independent of
+ *  whether korona has any (and vice versa). */
+const SKIP: Partial<Record<Screen, (trims: TrimModel[]) => boolean>> = {
+  nalichnik: (trims) => !trims.some((t) => t.category === 'nalichnik'),
+  korona: (trims) => !trims.some((t) => t.category === 'korona'),
+};
+
+/** Advance through `table` from `screen`, skipping past every screen whose
+ *  `SKIP` predicate is true — both nalichnik and korona can be empty at
+ *  once, so a single step needs to be able to fall through two in a row. */
+function walk(table: Record<Screen, Screen | null>, screen: Screen, trims: TrimModel[]): Screen {
+  let s = screen;
+  for (;;) {
+    const n = table[s] ?? s;
+    if (n === s) return n;
+    if (!SKIP[n]?.(trims)) return n;
+    s = n;
+  }
+}
+
 /**
- * The step numbering shown on screen ("02 / 04" etc.) — a fifth step,
- * exactly here, once at least one trim design has been published; the
- * SAME 4-step flow as before it. Every screen calls this instead of a
- * hardcoded string, so the count and position stay correct either way.
+ * The step numbering shown on screen ("02 / 04" etc.) — six steps once both
+ * a nalichnik and a korona design have been published, fewer if either (or
+ * both) catalogues are still empty; the SAME 4-step flow as before either
+ * existed. Every screen calls this instead of a hardcoded string, so the
+ * count and position stay correct in every combination.
  */
-const STEP_ORDER: Screen[] = ['room', 'door', 'trim', 'color', 'summary'];
-export function stepLabel(screen: Screen, hasTrim: boolean): string {
-  const order = hasTrim ? STEP_ORDER : STEP_ORDER.filter((s) => s !== 'trim');
+const STEP_ORDER: Screen[] = ['room', 'door', 'nalichnik', 'korona', 'color', 'summary'];
+export function stepLabel(screen: Screen, opts: { hasNalichnik: boolean; hasKorona: boolean }): string {
+  const order = STEP_ORDER.filter((s) => (s === 'nalichnik' ? opts.hasNalichnik : s === 'korona' ? opts.hasKorona : true));
   const i = order.indexOf(screen) + 1;
   return `${String(i).padStart(2, '0')} / ${String(order.length).padStart(2, '0')}`;
 }
@@ -85,11 +110,13 @@ interface KioskState {
   colorId: string;
   /** The casing's colour, or TRIM_SAME to follow the door. */
   trimColorId: string;
-  /** Which trim DESIGN is shown, independent of colour — TRIM_DEFAULT means
-   *  no override, falling through to the door's own trim or the room's (see
-   *  WallStage.tsx's priority). An id not found in `trims` (stale, removed
-   *  at the bench) is treated the same as TRIM_DEFAULT at render time. */
-  trimModelId: string;
+  /** Which nalichnik / korona DESIGN is shown — two fully independent
+   *  picks, neither implying the other. TRIM_DEFAULT means no override,
+   *  falling through to the room's own trim (see WallStage.tsx's
+   *  priority). An id not found in `trims` (stale, removed at the bench)
+   *  is treated the same as TRIM_DEFAULT at render time. */
+  nalichnikId: string;
+  koronaId: string;
   /** The live lists — in state so a bench change appears without a reload. */
   leaves: Leaf[];
   rooms: Room[];
@@ -110,7 +137,8 @@ interface KioskState {
   setLeaf: (id: string) => void;
   setColor: (id: string) => void;
   setTrimColor: (id: string) => void;
-  setTrimModel: (id: string) => void;
+  setNalichnik: (id: string) => void;
+  setKorona: (id: string) => void;
   /** Carousel swipe: ±1 through the door list, wrapping. */
   stepLeaf: (delta: number) => void;
   refresh: () => void;
@@ -125,27 +153,16 @@ export const useKiosk = create<KioskState>((set) => ({
   leafId: first(buildLeaves(), BASE_LEAVES[0].id),
   colorId: DEFAULT_COLOR,
   trimColorId: TRIM_SAME,
-  trimModelId: TRIM_DEFAULT,
+  nalichnikId: TRIM_DEFAULT,
+  koronaId: TRIM_DEFAULT,
   leaves: buildLeaves(),
   rooms: buildRooms(),
   trims: buildTrims(),
   colors: buildColors(),
 
   go: (screen) => set({ screen }),
-  // The 'trim' step is skipped in both directions while the catalogue is
-  // empty — nothing to choose, so nothing to show.
-  next: () =>
-    set((s) => {
-      let n = NEXT[s.screen];
-      if (n === 'trim' && s.trims.length === 0) n = NEXT.trim;
-      return { screen: n ?? s.screen };
-    }),
-  back: () =>
-    set((s) => {
-      let p = PREV[s.screen];
-      if (p === 'trim' && s.trims.length === 0) p = PREV.trim;
-      return { screen: p ?? s.screen };
-    }),
+  next: () => set((s) => ({ screen: walk(NEXT, s.screen, s.trims) })),
+  back: () => set((s) => ({ screen: walk(PREV, s.screen, s.trims) })),
 
   /**
    * Rebuild all three lists, and keep the current selection valid: if the
@@ -189,7 +206,7 @@ export const useKiosk = create<KioskState>((set) => ({
     set({
       screen: 'attract', lang: 'uz',
       roomId: first(rooms, BASE_ROOMS[0].id), leafId: first(leaves, BASE_LEAVES[0].id),
-      colorId: DEFAULT_COLOR, trimColorId: TRIM_SAME, trimModelId: TRIM_DEFAULT,
+      colorId: DEFAULT_COLOR, trimColorId: TRIM_SAME, nalichnikId: TRIM_DEFAULT, koronaId: TRIM_DEFAULT,
       leaves, rooms, trims, colors,
     });
   },
@@ -211,7 +228,8 @@ export const useKiosk = create<KioskState>((set) => ({
     }),
   setColor: (colorId) => set({ colorId }),
   setTrimColor: (trimColorId) => set({ trimColorId }),
-  setTrimModel: (trimModelId) => set({ trimModelId }),
+  setNalichnik: (nalichnikId) => set({ nalichnikId }),
+  setKorona: (koronaId) => set({ koronaId }),
 
   stepLeaf: (delta) =>
     set((s) => {
@@ -225,4 +243,15 @@ export const useKiosk = create<KioskState>((set) => ({
 // reload — the bench dispatches this, and the store rebuilds.
 if (typeof window !== 'undefined') {
   window.addEventListener('dc-catalog-changed', () => useKiosk.getState().refresh());
+}
+
+/** Whether each of the two independent trim categories has anything
+ *  published — every screen needs this for `stepLabel`, so it lives here
+ *  once instead of five separate `trims.some(...)` pairs. */
+export function useStepFlags(): { hasNalichnik: boolean; hasKorona: boolean } {
+  const trims = useKiosk((s) => s.trims);
+  return {
+    hasNalichnik: trims.some((t) => t.category === 'nalichnik'),
+    hasKorona: trims.some((t) => t.category === 'korona'),
+  };
 }
