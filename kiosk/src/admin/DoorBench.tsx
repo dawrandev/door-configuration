@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { COLOR, RADIUS, RADIUS_SM, TOUCH_MIN, TYPE } from '../design/tokens';
 import { rectify, stripHandle, neutraliseWhite, encodeAlpha, type Pt, type Margin } from './rectify';
-import { saveLeaf, saveTrimModel, mergeColors, saveColor, type AdminLeaf, type AdminColor, type AdminTrim } from './adminStore';
+import { saveLeaf, saveTrimModel, mergeColors, saveColor, STORAGE_FULL, type AdminLeaf, type AdminColor, type AdminTrim } from './adminStore';
 import { COLORS as BASE_COLORS, type DoorColor } from '../catalog/colors';
 import {
   Panel, PanelBody, PanelFooter, Label, Section, inp, AdminPrimaryButton, AdminGhostButton, Seg, Pad, Handle, DANGER, useToast, ROLE_ORDER, ROLE_META, RoleChip, MoveResize,
@@ -51,6 +51,28 @@ const NALICHNIK_SIDES = [
   { id: 'shaft-left', label: 'Chap nalichnik' },
   { id: 'shaft-right', label: 'O‘ng nalichnik' },
 ] as const;
+
+/**
+ * The widest reveal this particular photograph can actually support.
+ *
+ * The rectify only has the camera's own pixels to draw on, so past some width
+ * the margin is empty rather than casing — and where that limit falls depends
+ * entirely on how tightly the door was framed, which is not a thing to ask an
+ * operator to guess at with a slider. Measured at thumbnail size, so trying
+ * several widths costs nothing.
+ */
+function fitMargin(img: HTMLImageElement, corners: [Pt, Pt, Pt, Pt]): number {
+  for (const m of [0.4, 0.32, 0.26, 0.2, 0.15, 0.1, 0.06]) {
+    try {
+      const c = rectify(img, corners, 180, { left: m, right: m, top: m, bottom: m });
+      const d = c.getContext('2d')!.getImageData(0, 0, c.width, c.height).data;
+      let empty = 0;
+      for (let i = 3; i < d.length; i += 4) if (d[i] === 0) empty++;
+      if (empty / (c.width * c.height) < 0.02) return m;
+    } catch { /* a degenerate quad — fall through to the narrowest reveal */ }
+  }
+  return 0.06;
+}
 
 /** A starting strip down one side of the door, inside the revealed margin.
  *  `ref` is the leaf's own rect within the padded canvas, so `ref.x` is
@@ -438,8 +460,16 @@ export function DoorBench({ onDone, edit }: { onDone: () => void; edit?: AdminLe
     // both already laid down the sides — there is no other shape to choose,
     // and starting from them is what keeps the top band and the wall out.
     if (next === 'nalichnik' && !trim.some((t) => roles.includes(t.role))) {
+      // How far out the photo can be opened is measured from the photo
+      // itself, not left on a slider for someone to guess — and it has to
+      // settle BEFORE the strips are laid, since they are placed inside
+      // whatever it reveals.
+      const m = img && corners.length === 4 ? fitMargin(img, corners as [Pt, Pt, Pt, Pt]) : margin;
+      setMargin(m);
+      const pad = 1 + m * 2;
+      const ref = { x: m / pad, y: m / pad, w: 1 / pad, h: 1 / pad };
       const seeded = NALICHNIK_SIDES.map((s) => {
-        const rect = sideStrip(s.id === 'shaft-left' ? 'left' : 'right', leafRef);
+        const rect = sideStrip(s.id === 'shaft-left' ? 'left' : 'right', ref);
         return { id: s.id, role: 'shaft' as TrimRole, label: s.label, rect, points: seedPoints(rect) };
       });
       setTrim((ts) => [...ts, ...seeded]);
@@ -470,6 +500,26 @@ export function DoorBench({ onDone, edit }: { onDone: () => void; edit?: AdminLe
   const publish = () => {
     if (!img || corners.length !== 4) return;
     setBusy(true);
+    try {
+      publishNow();
+    } catch (err) {
+      // Anything thrown in here used to leave the button reading
+      // "Saqlanmoqda…" for good, with no way to tell what had gone wrong —
+      // and a full storage drawer, which is what a shelf of photographs
+      // eventually causes, throws exactly here.
+      setBusy(false);
+      toast(err instanceof Error && err.message === STORAGE_FULL
+        ? 'Xotira to‘lgan — eski nalichnik/korona yoki eshiklarni o‘chiring'
+        : 'Saqlashda xatolik — qaytadan urinib ko‘ring');
+      return;
+    }
+    setBusy(false);
+    toast('Saqlandi ✓');
+    onDone();
+  };
+
+  const publishNow = () => {
+    if (!img || corners.length !== 4) return;
     // Render the door at full quality now — publishing never depends on
     // the optional check() above having been run.
     const canvas = rectify(img, corners as [Pt, Pt, Pt, Pt]);
@@ -518,7 +568,10 @@ export function DoorBench({ onDone, edit }: { onDone: () => void; edit?: AdminLe
     // differs.
     if (trim.length > 0) {
       const tc = rectify(img, corners as [Pt, Pt, Pt, Pt], 1200, marginObj);
-      const tscale = Math.min(1, 1000 / tc.width);
+      // 600, not 1000: the renderer downsamples every casing to CASING_W
+      // (512) before it does anything, so the extra pixels were only ever
+      // spending the storage budget that later refused a save outright.
+      const tscale = Math.min(1, 600 / tc.width);
       const tsmall = document.createElement('canvas');
       tsmall.width = Math.round(tc.width * tscale);
       tsmall.height = Math.round(tc.height * tscale);
@@ -549,10 +602,6 @@ export function DoorBench({ onDone, edit }: { onDone: () => void; edit?: AdminLe
       publishCategory('nalichnik', nalichnikPieces);
       publishCategory('korona', koronaPieces);
     }
-
-    setBusy(false);
-    toast('Saqlandi ✓');
-    onDone();
   };
 
   const dispW = img ? img.width * zoom : 0;
@@ -792,11 +841,12 @@ export function DoorBench({ onDone, edit }: { onDone: () => void; edit?: AdminLe
 
               {onTrimStage && (
                   <>
-                    <Label>Atrofni ochish — {(margin * 100).toFixed(0)}%</Label>
+                    <Label>Atrofni ochish — {(margin * 100).toFixed(0)}% (avtomatik)</Label>
                     <input type="range" min={0.03} max={0.4} step={0.01} value={margin} onChange={(e) => setMargin(+e.target.value)} style={{ width: '100%' }} />
                     <div style={{ fontSize: 12, color: COLOR.inkSoft, lineHeight: 1.5, marginTop: 6 }}>
-                      Nalichnik eshikdan qancha chetga chiqishini belgilaydi —
-                      u sig‘adigan darajada oching, ortiqchasiga emas.
+                      Suratda eshik atrofida qancha joy borligiga qarab o‘zi
+                      topildi — odatda tegish shart emas. Nalichnik sig‘masa
+                      kengaytiring.
                     </div>
 
                     {/* Only this stage's own pieces — the korona stage must not

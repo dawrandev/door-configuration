@@ -72,8 +72,18 @@ function read<T>(key: string, fallback: T): T {
     return fallback;
   }
 }
+/** Thrown when the browser's storage budget is used up — the one failure the
+ *  shop floor will actually meet, since every record carries a photograph.
+ *  Named rather than raw, because the DOMException for it differs by browser
+ *  and a bench needs to say something an operator can act on. */
+export const STORAGE_FULL = 'STORAGE_FULL';
+
 function write(key: string, value: unknown) {
-  localStorage.setItem(key, JSON.stringify(value));
+  try {
+    localStorage.setItem(key, JSON.stringify(value));
+  } catch (e) {
+    throw new Error(STORAGE_FULL, { cause: e });
+  }
   window.dispatchEvent(new CustomEvent('dc-catalog-changed'));
 }
 
