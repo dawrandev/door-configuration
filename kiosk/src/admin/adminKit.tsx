@@ -1,4 +1,5 @@
 import { createContext, useCallback, useContext, useRef, useState, type ReactNode } from 'react';
+import { createPortal } from 'react-dom';
 import { COLOR, FONT, RADIUS, RADIUS_SM, TOUCH_MIN, TYPE } from '../design/tokens';
 import { PrimaryButton, GhostButton } from '../ui/controls';
 import { Ornament } from '../ui/Ornament';
@@ -203,9 +204,15 @@ export function DimHUD({ rect, w, h }: { rect: { x: number; y: number; w: number
  * for a decision that needs the operator's full attention (an irreversible
  * delete) rather than a strip competing for space inside a small card.
  * Closes on backdrop click, same as pressing Bekor qilish.
+ *
+ * Rendered through a portal, NOT in place. `position: fixed` is measured
+ * against the viewport only while no ancestor is transformed — and the card
+ * these are opened from lifts on hover (`.dc-lift:hover`), which makes that
+ * card the containing block instead and squeezed the whole modal down into
+ * its width. A portal puts it outside every such ancestor.
  */
 export function Modal({ children, onClose }: { children: ReactNode; onClose: () => void }) {
-  return (
+  return createPortal(
     <div
       onClick={onClose}
       style={{
@@ -222,7 +229,8 @@ export function Modal({ children, onClose }: { children: ReactNode; onClose: () 
       >
         {children}
       </div>
-    </div>
+    </div>,
+    document.body
   );
 }
 
