@@ -208,7 +208,8 @@ function TrimCard({ trim, onEdit }: { trim: TrimModel; onEdit: () => void }) {
   const builtIn = isBuiltIn(trim.id);
   const overridden = isTrimOverridden(trim.id);
   const canReedit = !!(trim as AdminTrim).source || !builtIn;
-  const pieceNote = `${trim.trimBoxes.length} ta qism`;
+  const categoryLabel = trim.category === 'nalichnik' ? 'Nalichnik' : 'Korona';
+  const pieceNote = `${categoryLabel} · ${trim.trimBoxes.length} ta qism`;
   return (
     <Card>
       <div style={{ aspectRatio: THUMB_RATIO, background: COLOR.paper, borderRadius: RADIUS_SM, overflow: 'hidden', position: 'relative' }}>

@@ -3,7 +3,7 @@ import { COLOR, RADIUS, RADIUS_SM, TYPE } from '../design/tokens';
 import { rectify, type Pt, type Margin } from './rectify';
 import { saveTrimModel, type AdminTrim } from './adminStore';
 import {
-  Panel, PanelBody, PanelFooter, Label, Section, inp, AdminPrimaryButton, Handle, Pad, DANGER, useToast, ROLE_ORDER, ROLE_META, RoleChip, MoveResize,
+  Panel, PanelBody, PanelFooter, Label, Section, inp, AdminPrimaryButton, Seg, Handle, Pad, DANGER, useToast, ROLE_ORDER, ROLE_META, RoleChip, MoveResize,
 } from './adminKit';
 import { bboxOfPoints, seedPoints, defaultRectFor, nearestLoop, toStoredTrim, toTrimState, type TrimPieceState } from './trimGeometry';
 import type { TrimRole } from '../catalog/types';
@@ -34,6 +34,10 @@ export function TrimBench({ onDone, edit }: { onDone: () => void; edit?: AdminTr
   const [img, setImg] = useState<HTMLImageElement | null>(null);
   const [source, setSource] = useState<string | null>(null);
   const [name, setName] = useState('');
+  // Which independent client-facing pick this design belongs to — the
+  // customer chooses nalichnik and korona entirely separately, so every
+  // design has to declare which one it is.
+  const [category, setCategory] = useState<'nalichnik' | 'korona'>('nalichnik');
   const [corners, setCorners] = useState<Pt[]>([]);
   const [zoom, setZoom] = useState(1);
   const [busy, setBusy] = useState(false);
@@ -53,6 +57,7 @@ export function TrimBench({ onDone, edit }: { onDone: () => void; edit?: AdminTr
   useEffect(() => {
     if (!edit) return;
     setName(edit.name.uz);
+    setCategory(edit.category);
     setMargin(edit.trimMargin.left);
     setTrim(edit.trimBoxes.map((b, i) => toTrimState(`${b.role ?? 'extra'}-${i}`, b)));
     if (!edit.source) return;
@@ -217,6 +222,7 @@ export function TrimBench({ onDone, edit }: { onDone: () => void; edit?: AdminTr
     saveTrimModel({
       id: edit?.id ?? 'a-' + Date.now().toString(36),
       name: { uz: name || 'Nalichnik', kk: name || 'Naličnik', ru: name || 'Наличник' },
+      category,
       trimMargin: marginObj,
       trimBoxes: trim.map(toStoredTrim),
       trimSource,
@@ -320,6 +326,12 @@ export function TrimBench({ onDone, edit }: { onDone: () => void; edit?: AdminTr
               <Section title="Nomlanish">
                 <Label>Nomi</Label>
                 <input value={name} onChange={(e) => setName(e.target.value)} style={inp} placeholder="Masalan: Klassik oq korona" />
+                <Label>Turkumi — mijoz buni qaysi tanlovda ko‘radi</Label>
+                <Seg
+                  opts={[{ id: 'nalichnik', label: 'Nalichnik' }, { id: 'korona', label: 'Korona' }]}
+                  value={category}
+                  onPick={(v) => setCategory(v as 'nalichnik' | 'korona')}
+                />
               </Section>
 
               <Section title="Nalichnikni chizish">

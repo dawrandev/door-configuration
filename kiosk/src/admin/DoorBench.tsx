@@ -6,7 +6,7 @@ import { COLORS as BASE_COLORS, type DoorColor } from '../catalog/colors';
 import {
   Panel, PanelBody, PanelFooter, Label, Section, inp, AdminPrimaryButton, AdminGhostButton, Seg, Pad, Handle, DANGER, useToast, ROLE_ORDER, ROLE_META, RoleChip, MoveResize,
 } from './adminKit';
-import { bboxOfPoints, seedPoints, defaultRectFor, nearestLoop, toStoredTrim, toTrimState, type TrimPieceState } from './trimGeometry';
+import { bboxOfPoints, seedPoints, defaultRectFor, nearestLoop, toStoredTrim, type TrimPieceState } from './trimGeometry';
 import type { TrimRole } from '../catalog/types';
 
 /** Every role offered when marking which nalichnik/korona pieces a door
@@ -14,6 +14,12 @@ import type { TrimRole } from '../catalog/types';
  *  with some one-off extra piece a room happens to have can still include
  *  it. */
 const DOOR_TRIM_ROLES: TrimRole[] = [...ROLE_ORDER, 'extra'];
+
+/** Which traced roles land in the nalichnik catalog entry versus the korona
+ *  one when tracing during door-add gets split at publish — see
+ *  `publish()`. A crown is the only korona-family role; everything else
+ *  (the shaft, feet, and unlabelled "extra" pieces) is nalichnik-family. */
+const NALICHNIK_ROLES: TrimRole[] = ['shaft', 'footL', 'footR', 'extra'];
 
 /** Downscale an image to a compact JPEG data URL for storage/re-editing. */
 function compactSource(el: HTMLImageElement, maxW = 1300): string {
@@ -74,12 +80,13 @@ export function DoorBench({ onDone, edit }: { onDone: () => void; edit?: AdminLe
       return next;
     });
 
-  // A door's OWN nalichnik/korona, traced on its own photo — for a door shot
-  // already standing in its matching casing. Off by default (every door
-  // relies on its room's trim, filtered by trimRoles above); turning it on
-  // REPLACES the room's trim for this door entirely, so the two controls
-  // are mutually exclusive in effect even though trimRoles stays set (it's
-  // simply unused while this is on).
+  // A door is often PHOTOGRAPHED already standing in a good casing — the
+  // SAME photo can double as a nalichnik/korona shoot instead of a separate
+  // one. Off by default (most doors don't need this); whatever gets traced
+  // here is never stored on the door itself — it's published straight to
+  // the shared catalog (see `publish()`), split by role into its own
+  // nalichnik entry and/or its own korona entry, exactly like tracing them
+  // directly in TrimBench would.
   const [trace, setTrace] = useState(false);
   /** Fraction of the leaf's own width/height to reveal on every side —
    *  uniform rather than four independent sliders, since a door photographed
@@ -88,12 +95,6 @@ export function DoorBench({ onDone, edit }: { onDone: () => void; edit?: AdminLe
   const [trim, setTrim] = useState<TrimPieceState[]>([]);
   const [activeTrimId, setActiveTrimId] = useState<string | null>(null);
   const [paddedImg, setPaddedImg] = useState<HTMLImageElement | null>(null);
-  // A door is often PHOTOGRAPHED already standing in a good casing — tracing
-  // it above already keeps it for this one door, but the same trace is real
-  // trim worth offering on its own, not thrown away just because it started
-  // on a door photo. Publishing it as an independent TrimModel too means a
-  // colleague never re-shoots the same casing separately in TrimBench.
-  const [alsoAddToCatalog, setAlsoAddToCatalog] = useState(false);
   const [catalogTrimName, setCatalogTrimName] = useState('');
 
   const wrapRef = useRef<HTMLDivElement>(null);
@@ -114,14 +115,11 @@ export function DoorBench({ onDone, edit }: { onDone: () => void; edit?: AdminLe
     setWhite(edit.white ?? true);
     setSelected(new Set(edit.colorIds ?? colors.map((c) => c.id)));
     setTrimRoles(new Set(edit.trimRoles ?? DOOR_TRIM_ROLES));
-    if (edit.trimBoxes?.length) {
-      setTrace(true);
-      setMargin(edit.trimMargin?.left ?? 0.15);
-      setTrim(edit.trimBoxes.map((b, i) => toTrimState(`${b.role ?? 'extra'}-${i}`, b)));
-    } else {
-      setTrace(false);
-      setTrim([]);
-    }
+    // A door no longer carries its own trim data — reopening one never
+    // brings back a previous trace (there's nothing left to bring back;
+    // whatever was traced before is out in the catalog under its own id).
+    setTrace(false);
+    setTrim([]);
     if (!edit.source) return;
     const el = new Image();
     el.onload = () => {
@@ -160,7 +158,6 @@ export function DoorBench({ onDone, edit }: { onDone: () => void; edit?: AdminLe
       setTrace(false);
       setTrim([]);
       setActiveTrimId(null);
-      setAlsoAddToCatalog(false);
       setCatalogTrimName('');
       if (!name) setName(f.name.replace(/\.[^.]+$/, ''));
     };
@@ -364,21 +361,6 @@ export function DoorBench({ onDone, edit }: { onDone: () => void; edit?: AdminLe
     small.getContext('2d')!.drawImage(canvas, 0, 0, small.width, small.height);
     const image = small.toDataURL('image/jpeg', 0.82);
 
-    // The door's own trim, if it was traced: rendered at full quality now,
-    // same reasoning as the leaf image above — publishing never depends on
-    // the live low-res preview having been exactly right.
-    const hasOwnTrim = trace && trim.length > 0;
-    let trimSource: string | undefined;
-    if (hasOwnTrim) {
-      const tc = rectify(img, corners as [Pt, Pt, Pt, Pt], 1200, marginObj);
-      const tscale = Math.min(1, 1000 / tc.width);
-      const tsmall = document.createElement('canvas');
-      tsmall.width = Math.round(tc.width * tscale);
-      tsmall.height = Math.round(tc.height * tscale);
-      tsmall.getContext('2d')!.drawImage(tc, 0, 0, tsmall.width, tsmall.height);
-      trimSource = tsmall.toDataURL('image/jpeg', 0.85);
-    }
-
     const [TL, TR, BR, BL] = corners;
     const topW = Math.hypot(TR.x - TL.x, TR.y - TL.y);
     const botW = Math.hypot(BR.x - BL.x, BR.y - BL.y);
@@ -405,30 +387,46 @@ export function DoorBench({ onDone, edit }: { onDone: () => void; edit?: AdminLe
       // saves as undefined, not a frozen list that would silently exclude a
       // role added to the standard set later.
       trimRoles: trimRoles.size === DOOR_TRIM_ROLES.length ? undefined : [...trimRoles],
-      // A door's OWN trim, when traced, REPLACES the room's — all three
-      // fields travel together and are undefined together.
-      trimMargin: hasOwnTrim ? marginObj : undefined,
-      trimBoxes: hasOwnTrim ? trim.map(toStoredTrim) : undefined,
-      trimSource: hasOwnTrim ? trimSource : undefined,
     });
 
-    // The same traced casing, published a SECOND time as its own catalog
-    // entry — a fresh id, deliberately not the door's, so editing one never
-    // touches the other. `source`/`corners` carry over unchanged (same
-    // photo, same marks), so TrimBench can reopen and re-trace it exactly
-    // like anything authored there directly.
-    if (hasOwnTrim && alsoAddToCatalog) {
-      const catalogTrim: AdminTrim = {
-        id: 'a-' + Date.now().toString(36) + '-t',
-        name: { uz: catalogTrimName || 'Nalichnik', kk: catalogTrimName || 'Naličnik', ru: catalogTrimName || 'Наличник' },
-        trimMargin: marginObj,
-        trimBoxes: trim.map(toStoredTrim),
-        trimSource: trimSource!,
-        createdAt: Date.now(),
-        source: source ?? edit?.source,
-        corners: corners.map((c) => ({ x: +(c.x / img.width).toFixed(4), y: +(c.y / img.height).toFixed(4) })),
+    // Whatever was traced above is never stored on the door — it goes
+    // straight to the shared catalog, split by role into up to two entries,
+    // same as tracing them directly in TrimBench would. Both share the SAME
+    // padded rectify (one photo, one margin); only which pieces go in each
+    // differs.
+    if (trace && trim.length > 0) {
+      const tc = rectify(img, corners as [Pt, Pt, Pt, Pt], 1200, marginObj);
+      const tscale = Math.min(1, 1000 / tc.width);
+      const tsmall = document.createElement('canvas');
+      tsmall.width = Math.round(tc.width * tscale);
+      tsmall.height = Math.round(tc.height * tscale);
+      tsmall.getContext('2d')!.drawImage(tc, 0, 0, tsmall.width, tsmall.height);
+      const trimSource = tsmall.toDataURL('image/jpeg', 0.85);
+      const trimCorners = corners.map((c) => ({ x: +(c.x / img.width).toFixed(4), y: +(c.y / img.height).toFixed(4) }));
+
+      const nalichnikPieces = trim.filter((t) => NALICHNIK_ROLES.includes(t.role));
+      const koronaPieces = trim.filter((t) => t.role === 'crown');
+      const bothPresent = nalichnikPieces.length > 0 && koronaPieces.length > 0;
+
+      const publishCategory = (category: 'nalichnik' | 'korona', pieces: TrimPieceState[]) => {
+        if (!pieces.length) return;
+        const label = category === 'nalichnik' ? 'Nalichnik' : 'Korona';
+        const name = bothPresent ? `${catalogTrimName || label} — ${label}` : catalogTrimName || label;
+        const catalogTrim: AdminTrim = {
+          id: 'a-' + Date.now().toString(36) + '-' + category,
+          name: { uz: name, kk: name, ru: name },
+          category,
+          trimMargin: marginObj,
+          trimBoxes: pieces.map(toStoredTrim),
+          trimSource,
+          createdAt: Date.now(),
+          source: source ?? edit?.source,
+          corners: trimCorners,
+        };
+        saveTrimModel(catalogTrim);
       };
-      saveTrimModel(catalogTrim);
+      publishCategory('nalichnik', nalichnikPieces);
+      publishCategory('korona', koronaPieces);
     }
 
     setBusy(false);
@@ -613,15 +611,16 @@ export function DoorBench({ onDone, edit }: { onDone: () => void; edit?: AdminLe
                 )}
               </Section>
 
-              <Section title="O‘z nalichnigini chizish">
+              <Section title="Nalichnik va koronani chizish (ixtiyoriy)">
                 <label style={{ display: 'flex', alignItems: 'center', gap: 8, minHeight: TOUCH_MIN, cursor: 'pointer' }}>
                   <input type="checkbox" checked={trace} onChange={(e) => { setTrace(e.target.checked); setActiveTrimId(null); }} />
-                  <span style={{ fontSize: 13, color: COLOR.ink }}>Bu eshik o‘z nalichnigi bilan suratga olingan</span>
+                  <span style={{ fontSize: 13, color: COLOR.ink }}>Shu suratdan nalichnik/korona ham chizib olish</span>
                 </label>
                 <div style={{ fontSize: 12, color: COLOR.inkSoft, lineHeight: 1.5, marginTop: 6 }}>
-                  Yoqilsa, yuqoridagi ro‘yxat o‘rniga shu yerda chizilgan nalichnik
-                  ishlatiladi — qaysi xonaga qo‘yilishidan qat’i nazar. Faqat suratda
-                  eshik atrofida haqiqiy nalichnik ko‘rinib turgan bo‘lsa ishlating.
+                  Faqat suratda eshik atrofida haqiqiy nalichnik ko‘rinib turgan
+                  bo‘lsa ishlating. Chizilgan qism(lar) bu eshikka emas, mustaqil
+                  «Nalichniklar» katalogiga qo‘shiladi — mijoz ularni istalgan
+                  boshqa eshik yoki xona bilan ham tanlab ko‘ra oladi.
                 </div>
                 {trace && (
                   <>
@@ -690,31 +689,19 @@ export function DoorBench({ onDone, edit }: { onDone: () => void; edit?: AdminLe
                       })}
                     </div>
 
-                    {trim.length === 0 && (
+                    {trim.length === 0 ? (
                       <div style={{ fontSize: 12, color: DANGER.text, marginTop: 8 }}>
-                        Birorta qism chizilmagan — nashr qilinganda bu eshik xonaning o‘z nalichnigini olib davom etadi.
+                        Birorta qism chizilmagan — nashr qilinganda hech narsa katalogga qo‘shilmaydi.
                       </div>
-                    )}
-
-                    {trim.length > 0 && (
+                    ) : (
                       <div style={{ marginTop: 12, paddingTop: 12, borderTop: `1px solid ${COLOR.line}` }}>
-                        <label style={{ display: 'flex', alignItems: 'center', gap: 8, minHeight: TOUCH_MIN, cursor: 'pointer' }}>
-                          <input type="checkbox" checked={alsoAddToCatalog} onChange={(e) => setAlsoAddToCatalog(e.target.checked)} />
-                          <span style={{ fontSize: 13, color: COLOR.ink }}>Bu nalichnikni «Nalichniklar» katalogiga ham qo‘shish</span>
-                        </label>
-                        <div style={{ fontSize: 12, color: COLOR.inkSoft, lineHeight: 1.5, marginTop: 4 }}>
-                          Yoqilsa, shu chizilgan nalichnik mustaqil dizayn sifatida ham
-                          saqlanadi — mijoz uni boshqa har qanday eshikda ham tanlab
-                          ko‘ra oladi, qayta suratga olish shart bo‘lmaydi.
-                        </div>
-                        {alsoAddToCatalog && (
-                          <input
-                            value={catalogTrimName}
-                            onChange={(e) => setCatalogTrimName(e.target.value)}
-                            style={{ ...inp, marginTop: 8 }}
-                            placeholder="Nalichnik nomi — masalan: Klassik oq korona"
-                          />
-                        )}
+                        <Label>Dizayn nomi</Label>
+                        <input
+                          value={catalogTrimName}
+                          onChange={(e) => setCatalogTrimName(e.target.value)}
+                          style={inp}
+                          placeholder="Masalan: Klassik oq korona"
+                        />
                       </div>
                     )}
                   </>
