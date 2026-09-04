@@ -86,7 +86,15 @@ function derivePasses(rgb: Uint8ClampedArray, w: number, h: number, specGain = 0
   for (let i = 0; i < n; i++) BASE[i] = Math.min(1.35, L[i] / Math.max(0.02, lighting[i]));
 
   // p98, not max: one blown pixel should not set the scale for the whole part.
-  const sorted = lighting.slice().sort();
+  // Fully transparent pixels are excluded: a trim crop's margin can reach past
+  // the edge of the photograph (see `rectify`), and counting that empty region
+  // as pitch-black trim would drag the p98 down and darken the real trim with
+  // it. Opaque sources — every leaf, every room — have nothing excluded and
+  // land on exactly the reference they did before.
+  const lit = new Float32Array(n);
+  let ln = 0;
+  for (let i = 0; i < n; i++) if (rgb[i * 4 + 3] > 0) lit[ln++] = lighting[i];
+  const sorted = (ln ? lit.subarray(0, ln) : lighting).slice().sort();
   const ref = Math.max(0.02, sorted[Math.floor(sorted.length * 0.98)] || 1);
 
   const AO = new Float32Array(n);
@@ -115,7 +123,12 @@ function compositeToCanvas(p: Passes, tint: Tint, src: ImageData, keep?: { x: nu
     d[o] = Math.max(0, Math.min(255, (tint[0] * bv * av + sv) * 255));
     d[o + 1] = Math.max(0, Math.min(255, (tint[1] * bv * av + sv) * 255));
     d[o + 2] = Math.max(0, Math.min(255, (tint[2] * bv * av + sv) * 255));
-    d[o + 3] = 255;
+    // The SOURCE's own alpha, never a blanket 255: where a trim crop's margin
+    // ran past the edge of the photograph there is nothing to paint, and
+    // forcing it opaque published those pixels as solid black bars flanking
+    // the door. Leaves and rooms are opaque photographs, so this is 255 for
+    // them exactly as it was.
+    d[o + 3] = src.data[o + 3];
   }
   if (keep) {
     for (const k of keep) {
@@ -281,7 +294,7 @@ function recolorTrimFrom(
   id: string,
   source: string,
   boxes: TrimPiece[],
-  tint: Tint,
+  tint: Tint | null,
   punch?: { x: number; y: number; w: number; h: number }
 ): Promise<string | null> {
   if (!boxes.length) return Promise.resolve(null);
@@ -289,7 +302,9 @@ function recolorTrimFrom(
   // changes at runtime, but a bench's live preview edits it on every drag,
   // and a stale cache hit there would show the wrong shape.
   const boxKey = boxes.map((b) => `${b.x},${b.y},${b.w},${b.h},${b.points?.map((p) => `${p.x},${p.y}`).join(',') ?? ''},${b.holePoints?.map((p) => `${p.x},${p.y}`).join(',') ?? ''}`).join(';');
-  return cached(`trim|${id}|${tint.join(',')}|${source.length}|${boxKey}`, async () => {
+  // A null tint is "as photographed" — a distinct cache entry from any real
+  // tint, which is always a numeric triple and so can never spell `raw`.
+  return cached(`trim|${id}|${tint ? tint.join(',') : 'raw'}|${source.length}|${boxKey}`, async () => {
     const img = await loadImage(source);
     const { canvas, w, h } = drawAt(img, CASING_W);
 
@@ -308,7 +323,13 @@ function recolorTrimFrom(
     const cctx = crop.getContext('2d', { willReadFrequently: true })!;
     cctx.drawImage(canvas, cx, cy, cw, ch, 0, 0, cw, ch);
     const src = cctx.getImageData(0, 0, cw, ch);
-    const tinted = compositeToCanvas(derivePasses(src.data, cw, ch), tint, src);
+    // Null tint — the white 'oq' finish — means "as photographed", the same
+    // deal `recolorLeaf`'s caller strikes when it hands back `leaf.image`
+    // untouched. The crop still has to be MASKED to the traced outline, or
+    // the whole rectangular photo would land on the stage; it just isn't
+    // repainted. Without this the entire layer used to resolve to null and
+    // a picked nalichnik or korona simply never appeared.
+    const tinted = tint ? compositeToCanvas(derivePasses(src.data, cw, ch), tint, src) : crop;
 
     const out = document.createElement('canvas');
     out.width = w;
@@ -366,7 +387,7 @@ export function recolorTrim(room: Room, tint: Tint): Promise<string | null> {
  * `WallStage.tsx`) whenever either axis is picked; rendered exactly the
  * same way, just sourced from an independent catalog entry.
  */
-export function recolorTrimModel(model: TrimModel, tint: Tint): Promise<string | null> {
+export function recolorTrimModel(model: TrimModel, tint: Tint | null): Promise<string | null> {
   return recolorTrimFrom(model.id, model.trimSource, model.trimBoxes, tint);
 }
 
