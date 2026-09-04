@@ -48,6 +48,11 @@ export function WallStage({ onSwipe, children }: { onSwipe?: (delta: number) => 
   const paint = tintFor(colorId, colors);
   /** The casing follows the door unless the customer overrode it on step 3. */
   const trimPaint = trimColorId === TRIM_SAME ? paint : tintFor(trimColorId, colors);
+  /** The same choice as a stable STRING. `tintFor` builds a fresh array every
+   *  render, so an effect keyed on the tint itself re-runs constantly and
+   *  blanks its layer each time — the trim visibly flickered. The leaf has
+   *  always keyed on `colorId` for exactly this reason; the trim now does too. */
+  const trimPaintKey = trimColorId === TRIM_SAME ? colorId : trimColorId;
 
   // Preload every door once, so swapping never shows a blank frame first.
   useEffect(() => {
@@ -162,7 +167,7 @@ export function WallStage({ onSwipe, children }: { onSwipe?: (delta: number) => 
       />
 
       {width > 0 && layers.map((l, i) => (
-        <DoorLayer key={l.key} leaf={l.leaf} paint={paint} paintKey={colorId} trimPaint={trimPaint} nalichnikModel={nalichnikModel} koronaModel={koronaModel} geom={geom} lightTint={lightTint} fade={i === layers.length - 1 && layers.length > 1} />
+        <DoorLayer key={l.key} leaf={l.leaf} paint={paint} paintKey={colorId} trimPaint={trimPaint} trimPaintKey={trimPaintKey} nalichnikModel={nalichnikModel} koronaModel={koronaModel} geom={geom} lightTint={lightTint} fade={i === layers.length - 1 && layers.length > 1} />
       ))}
       {children}
     </div>
@@ -178,7 +183,7 @@ export function WallStage({ onSwipe, children }: { onSwipe?: (delta: number) => 
  * shouts louder than the width difference it avoids. A door and its opening are
  * made for each other in reality, so filling is the honest composite.
  */
-function DoorLayer({ leaf, paint, paintKey, trimPaint, nalichnikModel, koronaModel, geom, lightTint, fade }: { leaf: Leaf; paint: Tint | null; paintKey: string; trimPaint: Tint | null; nalichnikModel?: TrimModel; koronaModel?: TrimModel; geom: { ox: number; oy: number; ow: number; oh: number }; lightTint: string; fade: boolean }) {
+function DoorLayer({ leaf, paint, paintKey, trimPaint, trimPaintKey, nalichnikModel, koronaModel, geom, lightTint, fade }: { leaf: Leaf; paint: Tint | null; paintKey: string; trimPaint: Tint | null; trimPaintKey: string; nalichnikModel?: TrimModel; koronaModel?: TrimModel; geom: { ox: number; oy: number; ow: number; oh: number }; lightTint: string; fade: boolean }) {
   const { ox, oy, ow, oh } = geom;
   const [op, setOp] = useState(fade ? 0 : 1);
   useEffect(() => {
@@ -214,8 +219,8 @@ function DoorLayer({ leaf, paint, paintKey, trimPaint, nalichnikModel, koronaMod
           exactly like the room's trim does. Two separate layers, since a
           nalichnik and a korona pick are two separate photos with two
           separate margins — neither implies anything about the other. */}
-      <TrimLayer model={nalichnikModel} trimPaint={trimPaint} ow={ow} oh={oh} />
-      <TrimLayer model={koronaModel} trimPaint={trimPaint} ow={ow} oh={oh} />
+      <TrimLayer model={nalichnikModel} trimPaint={trimPaint} trimPaintKey={trimPaintKey} ow={ow} oh={oh} />
+      <TrimLayer model={koronaModel} trimPaint={trimPaint} trimPaintKey={trimPaintKey} ow={ow} oh={oh} />
       <img src={url} alt="" draggable={false} style={{ width: '100%', height: '100%', objectFit: 'fill', display: 'block', position: 'relative' }} />
       <div style={{ position: 'absolute', inset: 0, background: lightTint, mixBlendMode: 'multiply', pointerEvents: 'none' }} />
       {/* The other half of the same contact shadow: the door's own base picks
@@ -230,11 +235,15 @@ function DoorLayer({ leaf, paint, paintKey, trimPaint, nalichnikModel, koronaMod
 /** One independently-picked trim design (nalichnik OR korona), or nothing
  *  when that axis is left on "Standart" — its own component so each axis
  *  gets a stable hook regardless of whether the other one is set. */
-function TrimLayer({ model, trimPaint, ow, oh }: { model?: TrimModel; trimPaint: Tint | null; ow: number; oh: number }) {
+function TrimLayer({ model, trimPaint, trimPaintKey, ow, oh }: { model?: TrimModel; trimPaint: Tint | null; trimPaintKey: string; ow: number; oh: number }) {
+  // A null `trimPaint` is the white 'oq' finish, NOT "nothing to draw" — the
+  // design still renders, as photographed. Gating the layer on the paint is
+  // what made a picked nalichnik or korona invisible at the white default,
+  // which is precisely the state the customer picks it in.
   const trimUrl = useRender(
-    () => (model && trimPaint ? recolorTrimModel(model, trimPaint) : Promise.resolve(null)),
+    () => (model ? recolorTrimModel(model, trimPaint) : Promise.resolve(null)),
     '',
-    [model, trimPaint]
+    [model, trimPaintKey]
   );
   if (!model || !trimUrl) return null;
   const m = model.trimMargin;
