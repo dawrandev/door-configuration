@@ -22,7 +22,27 @@ function dropLegacyWoff(): Plugin {
   };
 }
 
+/** Where `php artisan serve` listens. */
+const BACKEND = 'http://127.0.0.1:8000';
+
 // https://vite.dev/config/
 export default defineConfig({
   plugins: [react(), dropLegacyWoff()],
+  server: {
+    /**
+     * Proxy the backend rather than enabling CORS on it.
+     *
+     * This is a correctness constraint, not a convenience. recolor.ts draws
+     * every door into a canvas and reads it back with getImageData, and a
+     * canvas that has had a cross-origin image drawn into it is tainted —
+     * every read then throws SecurityError. In production Laravel serves the
+     * SPA and /storage from one origin, so the question never arises; a dev
+     * setup on two ports would be the only place it could, and CORS there
+     * would hide the bug until deploy instead of preventing it.
+     */
+    proxy: {
+      '/api': { target: BACKEND, changeOrigin: false },
+      '/storage': { target: BACKEND, changeOrigin: false },
+    },
+  },
 });
