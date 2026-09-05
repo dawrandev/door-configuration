@@ -33,10 +33,21 @@
 import sharp from 'sharp';
 import path from 'node:path';
 import fs from 'node:fs';
+import { fileURLToPath } from 'node:url';
 
-const RAW = 'd:/laragon/www/door configurator/raw-photos';
-const OUT = 'd:/laragon/www/door configurator/kiosk/public/assets/leaves';
-const SHEET = 'd:/laragon/www/door configurator/kiosk/tools/_leaves-contact.jpg';
+/**
+ * Everything this script reads or writes, derived from where the script itself
+ * lives rather than from absolute strings naming one developer's machine.
+ * Those strings happened to be correct here; rooms.mjs's copy of them was not,
+ * and that script had been unrunnable for it.
+ */
+const TOOLS = path.dirname(fileURLToPath(import.meta.url));
+const KIOSK = path.resolve(TOOLS, '..');
+const REPO = path.resolve(KIOSK, '..');
+
+const RAW = path.join(REPO, 'raw-photos');
+const OUT = path.join(KIOSK, 'public/assets/leaves');
+const SHEET = path.join(TOOLS, '_leaves-contact.jpg');
 
 /**
  * The doors, and anything a photograph needs said about it.
@@ -383,7 +394,7 @@ function captureHandle(buf, W, H, s) {
       out[o + 3] = alpha;
     }
   }
-  const P = 'd:/laragon/www/door configurator/kiosk/public/assets/handles';
+  const P = path.join(KIOSK, 'public/assets/handles');
   fs.mkdirSync(P, { recursive: true });
   // Everything the app needs to put this back at true scale and position:
   //  - the cutout's size as a fraction of the leaf (so it scales with the leaf)
@@ -774,7 +785,7 @@ ${done
   .join('\n')}
 ];
 `;
-  fs.writeFileSync('d:/laragon/www/door configurator/kiosk/src/catalog/leaves.generated.ts', ts);
+  fs.writeFileSync(path.join(KIOSK, 'src/catalog/leaves.generated.ts'), ts);
   console.log('catalogue → src/catalog/leaves.generated.ts');
 
   await writeHandles(done);
@@ -793,7 +804,7 @@ ${done
 async function writeHandles(list) {
   const source = list.find((d) => d._handle)?._handle;
   if (!source) { console.log('no handle captured'); return; }
-  const P = 'd:/laragon/www/door configurator/kiosk/public/assets/handles';
+  const P = path.join(KIOSK, 'public/assets/handles');
   const { buf, w, h } = source;
 
   /**
@@ -854,7 +865,7 @@ export const HANDLES: Handle[] = [
 ${meta.map((f) => `  { id: '${f.id}', name: { uz: '${f.name.uz}', kk: '${f.name.kk}', ru: '${f.name.ru}' }, image: '/assets/handles/${f.id}.png' },`).join('\n')}
 ];
 `;
-  fs.writeFileSync('d:/laragon/www/door configurator/kiosk/src/catalog/handles.generated.ts', ts);
+  fs.writeFileSync(path.join(KIOSK, 'src/catalog/handles.generated.ts'), ts);
   console.log('handles → src/catalog/handles.generated.ts');
 }
 

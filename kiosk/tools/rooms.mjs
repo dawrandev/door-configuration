@@ -17,11 +17,27 @@
 import sharp from 'sharp';
 import path from 'node:path';
 import fs from 'node:fs';
+import { fileURLToPath } from 'node:url';
 
-const SCENE = 'd:/laragon/www/door-configuration/kiosk/public/assets/scene';
-const AI = 'd:/laragon/www/door-configuration/rooms-ai';
-const OUT = 'd:/laragon/www/door-configuration/kiosk/public/assets/rooms';
-const SHEET = 'd:/laragon/www/door-configuration/kiosk/tools/_rooms-contact.jpg';
+/**
+ * Everything this script reads or writes, derived from where the script itself
+ * lives. The paths used to be absolute strings naming one developer's machine,
+ * and rooms.mjs's copy named a folder that did not exist at all — the GitHub
+ * repo is 'door-configuration', the working folder is 'door configurator', and
+ * whoever wrote them typed the repo name. The script had been unrunnable ever
+ * since.
+ */
+const TOOLS = path.dirname(fileURLToPath(import.meta.url));
+const KIOSK = path.resolve(TOOLS, '..');
+const REPO = path.resolve(KIOSK, '..');
+
+/** The four product renders the rooms are cut from. They live under tools/,
+ *  not under public/, because they are pipeline INPUT — the app never serves
+ *  them, and shipping 1.6MB of them to every visitor was pure waste. */
+const SCENE = path.join(TOOLS, 'room-sources');
+const AI = path.join(REPO, 'rooms-ai');
+const OUT = path.join(KIOSK, 'public/assets/rooms');
+const SHEET = path.join(TOOLS, '_rooms-contact.jpg');
 
 /**
  * The rooms, with the opening each one already has.
@@ -215,7 +231,7 @@ ${done
   .join('\n')}
 ];
 `;
-fs.writeFileSync('d:/laragon/www/door-configuration/kiosk/src/catalog/rooms.generated.ts', tsOut);
+fs.writeFileSync(path.join(KIOSK, 'src/catalog/rooms.generated.ts'), tsOut);
 console.log('catalogue → src/catalog/rooms.generated.ts');
 
 const TW = 380;

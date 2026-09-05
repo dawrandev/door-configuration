@@ -5,15 +5,25 @@ import type { Tint } from '../catalog/colors';
 /**
  * Realistic recolouring, in the browser.
  *
- * A faithful port of tools/passes.mjs (base/ao/spec derivation) and the
- * tools/preview.mjs composite, so built-in and bench doors are recoloured by
- * ONE code path and the bench needs no server round-trip:
+ * The one code path that recolours every door, built-in or bench-added, with
+ * no server round-trip. Given a photograph it separates what the paint does
+ * from what the light does, replaces the first, and puts the second back:
  *
- *   base = L / blur(L)   — divide the lighting out; what's left is albedo
- *   ao   = blur(L), normalised to its own p98 — pure occlusion, no paint
- *   spec = max(0, L − blur(L)·1.06) · 1.4 — the highlights, kept white
+ *   lighting = blur(L·α) / blur(α)   — the local illumination, alpha-weighted
+ *                                      so empty space contributes nothing
+ *   base     = L / lighting          — divide the light out; what is left is
+ *                                      albedo. Clamped at 1.35: a specular
+ *                                      highlight divides to far more than 1.
+ *   ao       = lighting / p98        — pure occlusion, normalised so the
+ *                                      photographed paint is out of it
+ *   spec     = max(0, L − lighting·1.28) · 0.55 — the highlights, kept white
  *
  *   out = tint · base · ao + spec
+ *
+ * The shape of this comes from the offline pipeline the first leaves were cut
+ * with, but the two spec constants here are NOT that pipeline's (which used
+ * 1.06 and 1.4). They were retuned for this path and are the numbers the
+ * showroom has actually been running; the values above are the code's.
  *
  * Why not CSS multiply: it blends in gamma space, tints the highlights and
  * double-darkens the shading — the "dipped in plastic" look that got colour
