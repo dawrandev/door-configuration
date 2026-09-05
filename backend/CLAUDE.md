@@ -44,6 +44,8 @@
 
 - PHP 8.3.33, MySQL 8.0.30 (Laragon). Laravel 12, PHP `^8.2` — client serveri
   8.2 bo'lsa ham ishlaydi.
-- Baza: `door_configurator`.
+- Baza: `door_configurator`. Testlar `door_configurator_test` da — ular ham
+  MySQL'da yuradi, SQLite'da emas: sxema `json` va `enum` ustunlariga tayanadi va
+  ikki dvigatel ular haqida kelishmaydi (MySQL JSON obyekt kalitlarini saralaydi).
 - `php artisan serve` → `http://localhost:8000`. Frontend `npm run dev` →
   `http://localhost:5173`, `/api` va `/storage` ni backend'ga proksi qiladi.

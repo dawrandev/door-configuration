@@ -3,7 +3,7 @@
 | Faza | Holat | Izoh |
 |---|---|---|
 | 0 — Karkas | ✅ | Laravel 12.69.1, MySQL sozlangan, hujjatlar, Vite dev-proksi |
-| 1 — Sxema + seed + o'qish API | ⬜ | |
+| 1 — Sxema + seed + o'qish API | ✅ | 5 jadval, seeder, GET /api/catalog (+version). Shakl frontend bilan **maydonma-maydon** tasdiqlandi |
 | 2 — Auth | ⬜ | |
 | 3 — Yozish API + atomik nashr | ⬜ | |
 | 4+5 — Mijoz tomonini ko'chirish | ⬜ | ⚠ bitta branch, bo'linmaydi |

@@ -23,8 +23,17 @@
         <env name="BCRYPT_ROUNDS" value="4"/>
         <env name="BROADCAST_CONNECTION" value="null"/>
         <env name="CACHE_STORE" value="array"/>
-        <env name="DB_CONNECTION" value="sqlite"/>
-        <env name="DB_DATABASE" value=":memory:"/>
+        <!--
+            MySQL, not the sqlite :memory: default.
+
+            The schema leans on json and enum columns, and the two engines do
+            not agree about them: MySQL stores a json object as a SORTED map,
+            so {x,y,w,h} reads back as {h,w,x,y}. That is harmless, but it is
+            exactly the class of difference a sqlite suite would hide until
+            production. Tests run against the engine that ships.
+        -->
+        <env name="DB_CONNECTION" value="mysql"/>
+        <env name="DB_DATABASE" value="door_configurator_test"/>
         <env name="DB_URL" value=""/>
         <env name="MAIL_MAILER" value="array"/>
         <env name="QUEUE_CONNECTION" value="sync"/>
