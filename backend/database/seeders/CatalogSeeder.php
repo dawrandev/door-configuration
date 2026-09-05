@@ -68,6 +68,36 @@ class CatalogSeeder extends Seeder
         ));
     }
 
+    /**
+     * Put ONE built-in back to the state it shipped in.
+     *
+     * This is what deleting a re-cut built-in means: the bench's "Aslini
+     * qaytarish" button drops the override so the original resurfaces. There is
+     * no separate row to drop here — the override IS the row — so the shipped
+     * photograph and geometry are written back over it.
+     *
+     * Returns false when the id is not one the pipeline ships, which is the
+     * caller's signal that there is no original to go back to.
+     */
+    public function restoreOne(string $kind, string $id): bool
+    {
+        $this->pipeline = base_path('../kiosk/public');
+        $this->factoryReset = true;
+
+        $seeded = false;
+        DB::transaction(function () use ($kind, $id, &$seeded) {
+            match ($kind) {
+                'leaves' => $this->seedLeaves($id),
+                'rooms' => $this->seedRooms($id),
+                'trims' => $this->seedTrims($id),
+                'colors' => $this->seedColors($id),
+            };
+            $seeded = collect($this->data($kind))->contains(fn ($row) => $row['id'] === $id);
+        });
+
+        return $seeded;
+    }
+
     /** One seed file, decoded. */
     private function data(string $name): array
     {
@@ -99,9 +129,12 @@ class CatalogSeeder extends Seeder
         return $path;
     }
 
-    private function seedColors(): void
+    private function seedColors(?string $only = null): void
     {
         foreach ($this->data('colors') as $i => $c) {
+            if ($only !== null && $c['id'] !== $only) {
+                continue;
+            }
             $this->upsert(DoorColor::class, $c['id'], [
                 'name_uz' => $c['name']['uz'],
                 'name_kk' => $c['name']['kk'],
@@ -113,10 +146,13 @@ class CatalogSeeder extends Seeder
         }
     }
 
-    private function seedLeaves(): void
+    private function seedLeaves(?string $only = null): void
     {
         foreach ($this->data('leaves') as $i => $l) {
             $id = $l['id'];
+            if ($only !== null && $id !== $only) {
+                continue;
+            }
             $this->upsert(Leaf::class, $id, [
                 'name_uz' => $l['name']['uz'],
                 'name_kk' => $l['name']['kk'],
@@ -146,10 +182,13 @@ class CatalogSeeder extends Seeder
         }
     }
 
-    private function seedRooms(): void
+    private function seedRooms(?string $only = null): void
     {
         foreach ($this->data('rooms') as $i => $r) {
             $id = $r['id'];
+            if ($only !== null && $id !== $only) {
+                continue;
+            }
             $this->upsert(Room::class, $id, [
                 'name_uz' => $r['name']['uz'],
                 'name_kk' => $r['name']['kk'],
@@ -170,10 +209,13 @@ class CatalogSeeder extends Seeder
 
     /** Empty today — no trim design has ever shipped with the bundle — but the
      *  path exists so a future built-in needs no new code. */
-    private function seedTrims(): void
+    private function seedTrims(?string $only = null): void
     {
         foreach ($this->data('trims') as $i => $t) {
             $id = $t['id'];
+            if ($only !== null && $id !== $only) {
+                continue;
+            }
             $this->upsert(TrimModel::class, $id, [
                 'name_uz' => $t['name']['uz'],
                 'name_kk' => $t['name']['kk'],

@@ -1,5 +1,7 @@
 <?php
 
+use App\Http\Controllers\Api\Admin\CatalogItemController;
+use App\Http\Controllers\Api\Admin\ColorController;
 use App\Http\Controllers\Api\Admin\LeafController;
 use App\Http\Controllers\Api\Admin\RoomController;
 use App\Http\Controllers\Api\Admin\TrimController;
@@ -61,5 +63,22 @@ Route::prefix('api')->group(function () {
 
         Route::post('trims', [TrimController::class, 'store']);
         Route::post('trims/{id}', [TrimController::class, 'update'])->where('id', $id);
+
+        // Add-only: no update, no delete. Once a shade is mixed and named there
+        // is no reason to take it from a door already wearing it.
+        Route::post('colors', [ColorController::class, 'store']);
+
+        /*
+         * Rename, delete and unhide are identical across the three kinds, so
+         * they share a controller and take the kind as a segment. Publishing
+         * genuinely differs per kind and does not.
+         *
+         * Registered AFTER the publish routes so `POST admin/leaves/{id}` is
+         * matched by LeafController@update rather than being swallowed here.
+         */
+        $kinds = 'leaves|rooms|trims';
+        Route::patch('{kind}/{id}', [CatalogItemController::class, 'rename'])->where(['kind' => $kinds, 'id' => $id]);
+        Route::delete('{kind}/{id}', [CatalogItemController::class, 'destroy'])->where(['kind' => $kinds, 'id' => $id]);
+        Route::post('{kind}/{id}/unhide', [CatalogItemController::class, 'unhide'])->where(['kind' => $kinds, 'id' => $id]);
     });
 });
