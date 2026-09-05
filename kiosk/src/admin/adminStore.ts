@@ -147,6 +147,30 @@ export const loadTrimEdits = (): Record<string, Edit> => read(K.trimEdits, {});
 export function saveTrimModel(trim: AdminTrim) {
   write(K.trims, [...loadTrims().filter((t) => t.id !== trim.id), trim]);
 }
+
+/**
+ * The id a door's OWN traced nalichnik or korona is published under.
+ *
+ * Derived from the door rather than minted fresh, so republishing the same
+ * door after an edit REPLACES its designs (see `saveTrimModel`, which is
+ * id-keyed) instead of appending a second pair and orphaning the first. It
+ * is also how reopening the door finds what it traced last time, with no
+ * back-reference to keep in sync.
+ *
+ * The `a-` prefix is load-bearing: `isTrimOverridden` below reads an id
+ * without it as a built-in, and `removeTrimModel` would then hide such an
+ * entry rather than delete it.
+ */
+export const derivedTrimId = (leafId: string, category: 'nalichnik' | 'korona') =>
+  `${leafId.startsWith('a-') ? leafId : 'a-' + leafId}-${category}`;
+
+/** The design a door published for one category, if it still exists. The
+ *  category is checked too: TrimBench lets an operator move a design to the
+ *  other one, and a korona must never come back as a nalichnik. */
+export function findDoorTrim(leafId: string, category: 'nalichnik' | 'korona'): AdminTrim | undefined {
+  const id = derivedTrimId(leafId, category);
+  return loadTrims().find((t) => t.id === id && t.category === category);
+}
 export function editTrim(id: string, patch: Edit) {
   const e = loadTrimEdits();
   e[id] = { ...e[id], ...patch };
