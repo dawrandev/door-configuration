@@ -1,6 +1,7 @@
 import { COLOR, FONT, RADIUS, TYPE } from '../design/tokens';
 import { LANG_NAME, LANGS, T, tr } from '../i18n/strings';
 import { useKiosk } from '../store/useKiosk';
+import { enterFullscreen } from '../kioskMode';
 import { Ornament } from '../ui/Ornament';
 
 /**
@@ -61,7 +62,7 @@ export function Attract() {
         </p>
 
         <button
-          onClick={() => go('room')}
+          onClick={() => { enterFullscreen(); go('room'); }}
           className="dc-lift"
           style={{
             marginTop: 40,

@@ -50,13 +50,13 @@ export const COLOR = {
 
 export const FONT = {
   /** crafted display serif — headings, restrained */
-  display: "'Fraunces', 'IBM Plex Serif', serif",
+  display: "'Fraunces Variable', 'Fraunces', 'IBM Plex Serif', serif",
   /** UI body */
   sans: "'IBM Plex Sans', sans-serif",
   /** the shop-floor voice: labels, numbers, spec rows */
   mono: "'IBM Plex Mono', monospace",
   /** alias */
-  serif: "'Fraunces', 'IBM Plex Serif', serif",
+  serif: "'Fraunces Variable', 'Fraunces', 'IBM Plex Serif', serif",
 } as const;
 
 /**
