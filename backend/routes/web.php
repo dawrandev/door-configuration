@@ -1,6 +1,8 @@
 <?php
 
 use App\Http\Controllers\Api\Admin\LeafController;
+use App\Http\Controllers\Api\Admin\RoomController;
+use App\Http\Controllers\Api\Admin\TrimController;
 use App\Http\Controllers\Api\AuthController;
 use App\Http\Controllers\Api\CatalogController;
 use Illuminate\Support\Facades\Route;
@@ -45,11 +47,19 @@ Route::prefix('api')->group(function () {
      * Eloquent inside a repository. The pattern bounds what can reach the
      * service.
      */
-    Route::middleware(['auth', 'can:bench'])->prefix('admin')->group(function () {
+    $id = '[A-Za-z0-9._-]{1,64}';
+
+    Route::middleware(['auth', 'can:bench'])->prefix('admin')->group(function () use ($id) {
         // POST for the replace, not PUT: PHP does not populate $_FILES for PUT,
         // and _method spoofing would make every upload depend on a hidden field
         // that silently turns a re-cut into a create if it goes missing.
         Route::post('leaves', [LeafController::class, 'store']);
-        Route::post('leaves/{id}', [LeafController::class, 'update'])->where('id', '[A-Za-z0-9._-]{1,64}');
+        Route::post('leaves/{id}', [LeafController::class, 'update'])->where('id', $id);
+
+        Route::post('rooms', [RoomController::class, 'store']);
+        Route::post('rooms/{id}', [RoomController::class, 'update'])->where('id', $id);
+
+        Route::post('trims', [TrimController::class, 'store']);
+        Route::post('trims/{id}', [TrimController::class, 'update'])->where('id', $id);
     });
 });
