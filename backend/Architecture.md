@@ -81,19 +81,38 @@ qayta kesilgan eshikni abadiy eski rangida ko'rsatardi. Hash tufayli
 ## 6. Nashr atomik
 
 Eshikni nashr qilish — bitta `POST /api/admin/leaves`: leaf + 0..2 nalichnik/korona.
+Ketma-ketlik `app/Services/Concerns/PublishesAtomically.php` da, uchala nashr
+ham shuni ishlatadi:
 
-`LeafPublisher` service:
 1. FormRequest hammasini tekshiradi — bitta bayt diskka tegmasdan.
-2. Fayllar `storage/app/public/catalog/tmp/<uuid>/` ga yoziladi.
+2. Fayllar **YAKUNIY joyga** yoziladi.
 3. `DB::transaction` — qatorlar yoziladi.
-4. Commit'dan **keyin** fayllar yakuniy joyga `rename` qilinadi.
-5. Istisno bo'lsa — tranzaksiya qaytadi, `finally` tmp'ni o'chiradi.
+4. Commit'dan keyin — almashtirilgan **eski** fayllar o'chiriladi.
+5. Istisno bo'lsa — tranzaksiya qaytadi va **shu chaqiruv yozgan** fayllar
+   o'chiriladi.
 
-Fayllar SQL tranzaksiyasiga qo'shila olmaydi, shuning uchun qoldiq xavf bor:
-commit bilan rename orasidagi crash qatorlarni tmp'dagi fayllarga ishora qilib
-qoldiradi. `catalog:sweep-tmp` eski tmp'larni tozalaydi, `catalog:check` esa
-fayli yo'q qatorlarni topadi — **qolgan tmp fayl ko'rinmaydi, yo'q rasm esa
-ko'rinadi**, shuning uchun u aniqlanadigan bo'lishi kerak.
+**Nega tranzaksiyadan oldin yoziladi.** Fayl nomlari kontent-hash bilan, ya'ni
+yozish **buzuvchi emas**: yangi hash — yangi nom, u boshqa qator ishora qilgan
+faylning ustiga hech qachon yozmaydi; nom mos kelsa, baytlar allaqachon o'sha.
+
+`tmp/ → commit → rename` muqobili **yomonroq**: commit bilan rename orasidagi
+crash qatorlarni `tmp/` dagi fayllarga ishora qilib qoldiradi — bu **ko'rinadigan
+buzuq rasm**. Bu yerda esa eng yomon holat — hech kim ishora qilmaydigan fayl,
+uni hech kim ko'rmaydi.
+
+**5-qadam kafolatni kuchaytiradi:** muvaffaqiyatsiz nashr na bazani, na
+`storage/` ni o'zgartiradi. Faqat **yangi yozilgan** fayllar o'chiriladi —
+diskda allaqachon bo'lgan yo'lni boshqa qator ishlatayotgan bo'lishi mumkin, va
+uni o'chirish o'sha nashr tegmagan eshikning rasmini yulib olardi.
+
+Ikkala kafolat ham test bilan mixlangan (`PublishRollbackTest`).
+
+Qoldiq xavf: qattiq crash (SIGKILL, PHP fatal) 5-qadamni ham o'tkazib yuborishi
+mumkin — u holda yetim fayl qoladi. `catalog:sweep-orphans` uni topadi
+(standart holatda faqat hisobot, o'chirish uchun `--force`), `catalog:check` esa
+fayli yo'q qatorlarni topadi. **Yetim fayl ko'rinmaydi, yo'q rasm esa
+ko'rinadi** — shuning uchun ikkinchisi deploy qadami bo'lishi mumkin
+(nol bo'lmagan chiqish kodi bilan).
 
 ## 7. Papka tuzilishi
 

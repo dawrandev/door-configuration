@@ -33,12 +33,22 @@
 
 ## Test
 
-- Har `/api/admin/*` endpoint uchun Feature test. Rasm yuklash testlari
-  **haqiqiy fayl** bilan (`UploadedFile::fake()->image(...)` yetarli emas —
-  bizga haqiqiy piksel kerak, chunki hash hisoblanadi).
-- `LeafPublisher` uchun rollback testi majburiy: tranzaksiya o'rtasida istisno
-  bo'lsa, bazada ham, `storage/app/public/catalog/` da ham hech nima
-  o'zgarmasligi kerak.
+- Har `/api/admin/*` endpoint uchun Feature test.
+- Rasm fiksturalari **haqiqiy piksel** bilan — `tests/Concerns/MakesCatalogUploads`.
+  `UploadedFile::fake()->image('a.jpg', 100, 100)` ikki marta chaqirilsa
+  **bayt-ma-bayt bir xil** fayl beradi (o'lchandi). Har bir yo'l kontent-hash
+  bo'lgani uchun ikkala fikstura bitta fayl nomiga tushadi — ya'ni "qayta nashr
+  YANGI url beradi" testi noto'g'ri sababdan o'tadi. Fiksturalar rangi bilan
+  farqlanadi.
+- `LeafPublisher` uchun rollback testi majburiy, va invariant aniq:
+  **muvaffaqiyatsiz nashr na bazani, na `storage/app/public/catalog/` ni
+  o'zgartiradi.** Bu o'z-o'zidan kelib chiqmaydi: fayllar tranzaksiyadan
+  **oldin** yoziladi, shuning uchun kompensatsiya qiluvchi o'chirish bor
+  (`PublishesAtomically`).
+- Ikkinchi rollback testi ham majburiy: yiqilish **mavjud** faylni
+  o'chirmasligi. Kontent-hash tufayli bir xil piksellar bir xil yo'lga tushadi,
+  va uni "yangi yozilgan" deb hisoblash muvaffaqiyatsiz qayta nashrda eshikning
+  tirik rasmini yulib olardi.
 
 ## Muhit
 

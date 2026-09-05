@@ -25,7 +25,10 @@ class CatalogRepository
     public function leaves(bool $includeHidden = false): Collection
     {
         return Leaf::query()
-            ->with('colors:id')
+            // `trims` is read only by the admin resource, but eager-loading it
+            // unconditionally costs one query and saves the bench from
+            // reconstructing `a-<leafId>-<category>` to find what a door traced.
+            ->with(['colors:id', 'trims:id,owner_leaf_id,category'])
             ->unless($includeHidden, fn ($q) => $q->where('hidden', false))
             ->orderBy('position')->orderBy('created_at')
             ->get();

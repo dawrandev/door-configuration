@@ -1,7 +1,9 @@
 <?php
 
+use App\Http\Controllers\Api\Admin\AdminCatalogController;
 use App\Http\Controllers\Api\Admin\CatalogItemController;
 use App\Http\Controllers\Api\Admin\ColorController;
+use App\Http\Controllers\Api\Admin\DiagnosticsController;
 use App\Http\Controllers\Api\Admin\LeafController;
 use App\Http\Controllers\Api\Admin\RoomController;
 use App\Http\Controllers\Api\Admin\TrimController;
@@ -55,6 +57,11 @@ Route::prefix('api')->group(function () {
         // POST for the replace, not PUT: PHP does not populate $_FILES for PUT,
         // and _method spoofing would make every upload depend on a hidden field
         // that silently turns a re-cut into a create if it goes missing.
+        // The catalogue the bench sees: hidden items included, plus every
+        // field needed to reopen an item and re-cut it.
+        Route::get('catalog', [AdminCatalogController::class, 'index']);
+        Route::get('diagnostics', [DiagnosticsController::class, 'index']);
+
         Route::post('leaves', [LeafController::class, 'store']);
         Route::post('leaves/{id}', [LeafController::class, 'update'])->where('id', $id);
 

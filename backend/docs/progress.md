@@ -5,7 +5,7 @@
 | 0 — Karkas | ✅ | Laravel 12.69.1, MySQL sozlangan, hujjatlar, Vite dev-proksi |
 | 1 — Sxema + seed + o'qish API | ✅ | 5 jadval, seeder, GET /api/catalog (+version). Shakl frontend bilan **maydonma-maydon** tasdiqlandi |
 | 2 — Auth | ✅ | Sessiya auth, bitta foydalanuvchi, email+IP throttle, `bench:password` |
-| 3 — Yozish API + atomik nashr | ⬜ | |
+| 3 — Yozish API + atomik nashr | ✅ | 10 marshrut, atomik nashr, o’chirish/tiklash/yashirish, admin katalogi, diagnostika, 2 buyruq |
 | 4+5 — Mijoz tomonini ko'chirish | ⬜ | ⚠ bitta branch, bo'linmaydi |
 | 5b — Eski localStorage'dan import | ⬜ | 5 bilan bir relizda |
 | 6 — Render + rasm o'lchamlari | ⬜ | |
