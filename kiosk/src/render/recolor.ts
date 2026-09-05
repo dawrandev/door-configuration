@@ -30,7 +30,8 @@ import type { Tint } from '../catalog/colors';
 const LUMA = [0.2126, 0.7152, 0.0722];
 
 /** One separable box pass, with a running sum and clamped edges. */
-function boxBlur(src: Float32Array, dst: Float32Array, w: number, h: number, r: number, horizontal: boolean) {
+/** @internal — exported for tests, not part of the module's API. */
+export function boxBlur(src: Float32Array, dst: Float32Array, w: number, h: number, r: number, horizontal: boolean) {
   const n = horizontal ? h : w;
   const m = horizontal ? w : h;
   const stride = horizontal ? w : 1;
@@ -49,7 +50,8 @@ function boxBlur(src: Float32Array, dst: Float32Array, w: number, h: number, r: 
 }
 
 /** Gaussian blur, in float, three box passes deep — never through 8 bits. */
-function blurPlane(L: Float32Array, w: number, h: number, sigma: number): Float32Array {
+/** @internal — exported for tests, not part of the module's API. */
+export function blurPlane(L: Float32Array, w: number, h: number, sigma: number): Float32Array {
   const r = Math.max(1, Math.round(Math.sqrt((12 * sigma * sigma) / 3 + 1) / 2));
   let a = Float32Array.from(L);
   const b = new Float32Array(L.length);
@@ -60,7 +62,8 @@ function blurPlane(L: Float32Array, w: number, h: number, sigma: number): Float3
   return a;
 }
 
-interface Passes {
+/** @internal — exported for tests, not part of the module's API. */
+export interface LightingPasses {
   w: number;
   h: number;
   BASE: Float32Array;
@@ -73,7 +76,8 @@ interface Passes {
  * and a casing crop get comparable treatment; the p98 normalisation takes the
  * photographed paint out of `ao` so the tint fully owns the colour.
  */
-function derivePasses(rgb: Uint8ClampedArray, w: number, h: number, specGain = 0.55): Passes {
+/** @internal — exported for tests, not part of the module's API. */
+export function derivePasses(rgb: Uint8ClampedArray, w: number, h: number, specGain = 0.55): LightingPasses {
   const n = w * h;
   const L = new Float32Array(n);
   const A = new Float32Array(n);
@@ -125,7 +129,7 @@ function derivePasses(rgb: Uint8ClampedArray, w: number, h: number, specGain = 0
  * pixels back — a handle, a brass medallion or a logo is hardware, not paint,
  * and must survive every colour unchanged.
  */
-function compositeToCanvas(p: Passes, tint: Tint, src: ImageData, keep?: { x: number; y: number; w: number; h: number }[]): HTMLCanvasElement {
+function compositeToCanvas(p: LightingPasses, tint: Tint, src: ImageData, keep?: { x: number; y: number; w: number; h: number }[]): HTMLCanvasElement {
   const { w, h } = p;
   const out = new ImageData(w, h);
   const d = out.data;
@@ -211,7 +215,8 @@ function drawAt(img: HTMLImageElement, workW: number): { canvas: HTMLCanvasEleme
  */
 const CACHE_MAX = 60;
 const cache = new Map<string, Promise<string | null>>();
-function cached(key: string, make: () => Promise<string | null>): Promise<string | null> {
+/** @internal — exported for tests, not part of the module's API. */
+export function cached(key: string, make: () => Promise<string | null>): Promise<string | null> {
   const hit = cache.get(key);
   if (hit) {
     cache.delete(key);
@@ -271,7 +276,8 @@ export function recolorLeaf(leaf: Leaf, tint: Tint): Promise<string | null> {
  */
 /** Twice the signed area of a closed loop (shoelace formula) — its SIGN is
  *  all that's used here: which rotational direction the points wind in. */
-function signedArea(pts: { x: number; y: number }[]): number {
+/** @internal — exported for tests, not part of the module's API. */
+export function signedArea(pts: { x: number; y: number }[]): number {
   let a = 0;
   for (let i = 0; i < pts.length; i++) {
     const p = pts[i], q = pts[(i + 1) % pts.length];
@@ -285,7 +291,8 @@ function signedArea(pts: { x: number; y: number }[]): number {
  *  cancel it out — but a hand-traced loop can come in clicked in either
  *  rotational direction, so the winding is corrected here rather than left
  *  to chance (or explained to whoever is dragging points on a photo). */
-function windLike(pts: { x: number; y: number }[], ref: number): { x: number; y: number }[] {
+/** @internal — exported for tests, not part of the module's API. */
+export function windLike(pts: { x: number; y: number }[], ref: number): { x: number; y: number }[] {
   return Math.sign(signedArea(pts)) === Math.sign(ref) ? pts : [...pts].reverse();
 }
 
@@ -320,7 +327,8 @@ function addLoop(path: Path2D, pts: { x: number; y: number }[], w: number, h: nu
  * crop was for: a plinth foot against the shaft it sits under, or a room's
  * crown against its ring, must not disagree right where they meet.
  */
-function groupTouching(boxes: TrimPiece[]): TrimPiece[][] {
+/** @internal — exported for tests, not part of the module's API. */
+export function groupTouching(boxes: TrimPiece[]): TrimPiece[][] {
   const parent = boxes.map((_, i) => i);
   const find = (i: number): number => (parent[i] === i ? i : (parent[i] = find(parent[i])));
   const touches = (a: TrimPiece, b: TrimPiece) =>
