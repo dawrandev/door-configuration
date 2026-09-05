@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { COLOR, RADIUS, RADIUS_SM, TOUCH_MIN, TYPE } from '../design/tokens';
 import { processRoom, type Rect } from './roomProcess';
-import { saveRoom, type AdminRoom } from './adminStore';
+import { saveRoom, STORAGE_FULL, type AdminRoom } from './adminStore';
 import { Panel, PanelBody, PanelFooter, Label, Section, inp, AdminPrimaryButton, Handle, DimHUD, DANGER, useToast, ROLE_ORDER, ROLE_META, RoleChip, MoveResize } from './adminKit';
 import { bboxOfPoints, seedPoints, defaultRectFor, nearestLoop, toStoredTrim, toTrimState, type Point, type TrimPieceState } from './trimGeometry';
 import { recolorTrim } from '../render/recolor';
@@ -329,26 +329,40 @@ export function RoomBench({ onDone, edit }: { onDone: () => void; edit?: AdminRo
   const publish = () => {
     if (!img || !box) return;
     setBusy(true);
-    const p = processRoom(img, box);
-    // The chooser thumbnail is the room untouched (door and all); the compact
-    // source doubles as it, so no black recess shows on the selection screen.
-    const thumb = source ?? edit?.source ?? p.image;
-    saveRoom({
-      id: edit?.id ?? 'a-' + Date.now().toString(36),
-      name: { uz: name || 'Xona', kk: name || 'Bólme', ru: name || 'Комната' },
-      image: p.image,
-      thumb,
-      aspect: p.aspect,
-      open: box,
-      // Each piece's role now travels on the box itself (toStoredTrim) — the
-      // old parallel trimRoles array is a read-only fallback for older data,
-      // never written by a fresh publish.
-      trimBoxes: trim.length ? trim.map(toStoredTrim) : undefined,
-      light: p.light,
-      createdAt: edit?.createdAt ?? Date.now(),
-      source: source ?? edit?.source,
-      box,
-    });
+    try {
+      const p = processRoom(img, box);
+      // The chooser thumbnail is the room untouched (door and all); the compact
+      // source doubles as it, so no black recess shows on the selection screen.
+      const thumb = source ?? edit?.source ?? p.image;
+      saveRoom({
+        id: edit?.id ?? 'a-' + Date.now().toString(36),
+        name: { uz: name || 'Xona', kk: name || 'Bólme', ru: name || 'Комната' },
+        image: p.image,
+        thumb,
+        aspect: p.aspect,
+        open: box,
+        // Each piece's role now travels on the box itself (toStoredTrim) — the
+        // old parallel trimRoles array is a read-only fallback for older data,
+        // never written by a fresh publish.
+        trimBoxes: trim.length ? trim.map(toStoredTrim) : undefined,
+        light: p.light,
+        createdAt: edit?.createdAt ?? Date.now(),
+        source: source ?? edit?.source,
+        box,
+      });
+    } catch (err) {
+      // A room is the single largest record the bench writes — the photograph
+      // is encoded at its full natural resolution — so it is the likeliest of
+      // all of them to exhaust the storage drawer. Without this the throw
+      // escaped, `busy` stayed true, and the button sat on "Saqlanmoqda…"
+      // forever with no message: the operator's only clue that anything had
+      // gone wrong was that nothing ever happened.
+      setBusy(false);
+      toast(err instanceof Error && err.message === STORAGE_FULL
+        ? 'Xotira to‘lgan — eski xona yoki eshiklarni o‘chiring'
+        : 'Saqlashda xatolik — qaytadan urinib ko‘ring');
+      return;
+    }
     setBusy(false);
     toast('Saqlandi ✓');
     onDone();

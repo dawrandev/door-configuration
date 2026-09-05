@@ -18,8 +18,11 @@ export interface Pt {
   y: number;
 }
 
-/** Solve the 8-DoF homography mapping the unit output rect to the source quad. */
-/** @internal — exported for tests, not part of the module's API. */
+/**
+ * Solve the 8-DoF homography mapping the unit output rect to the source quad.
+ *
+ * @internal — exported for tests, not part of the module's API.
+ */
 export function homography(src: [Pt, Pt, Pt, Pt], OW: number, OH: number): number[] {
   const dst: Pt[] = [
     { x: 0, y: 0 },

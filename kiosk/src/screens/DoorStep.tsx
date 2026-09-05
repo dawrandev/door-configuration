@@ -72,6 +72,11 @@ export function DoorStep() {
 
   // When the door changes from elsewhere — a swipe on the room — bring that
   // tile to the centre so the strip and the stage stay in agreement.
+  //
+  // Keyed on LEAVES as well as leafId: the list is live store state, so a door
+  // published or hidden at the bench while this screen is open re-indexes every
+  // tile. Without it the effect measured against the list as it was, and the
+  // strip settled on a neighbour of the door the stage was actually showing.
   useEffect(() => {
     if (dragging.current) return;
     const el = track.current;
@@ -84,7 +89,7 @@ export function DoorStep() {
       programmatic.current = true;
       el.scrollTo({ left: target, behavior: 'smooth' });
     }
-  }, [leafId]);
+  }, [leafId, LEAVES]);
 
   return (
     <div className="dc-screen" style={{ animation: 'fadeUp .5s cubic-bezier(.22,.61,.36,1) both' }}>

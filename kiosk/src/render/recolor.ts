@@ -39,8 +39,11 @@ import type { Tint } from '../catalog/colors';
 
 const LUMA = [0.2126, 0.7152, 0.0722];
 
-/** One separable box pass, with a running sum and clamped edges. */
-/** @internal — exported for tests, not part of the module's API. */
+/**
+ * One separable box pass, with a running sum and clamped edges.
+ *
+ * @internal — exported for tests, not part of the module's API.
+ */
 export function boxBlur(src: Float32Array, dst: Float32Array, w: number, h: number, r: number, horizontal: boolean) {
   const n = horizontal ? h : w;
   const m = horizontal ? w : h;
@@ -59,8 +62,11 @@ export function boxBlur(src: Float32Array, dst: Float32Array, w: number, h: numb
   }
 }
 
-/** Gaussian blur, in float, three box passes deep — never through 8 bits. */
-/** @internal — exported for tests, not part of the module's API. */
+/**
+ * Gaussian blur, in float, three box passes deep — never through 8 bits.
+ *
+ * @internal — exported for tests, not part of the module's API.
+ */
 export function blurPlane(L: Float32Array, w: number, h: number, sigma: number): Float32Array {
   const r = Math.max(1, Math.round(Math.sqrt((12 * sigma * sigma) / 3 + 1) / 2));
   let a = Float32Array.from(L);
@@ -85,8 +91,9 @@ export interface LightingPasses {
  * Derive the passes from raw RGBA pixels. Sigma scales off the width so a leaf
  * and a casing crop get comparable treatment; the p98 normalisation takes the
  * photographed paint out of `ao` so the tint fully owns the colour.
+ *
+ * @internal — exported for tests, not part of the module's API.
  */
-/** @internal — exported for tests, not part of the module's API. */
 export function derivePasses(rgb: Uint8ClampedArray, w: number, h: number, specGain = 0.55): LightingPasses {
   const n = w * h;
   const L = new Float32Array(n);
@@ -285,8 +292,9 @@ export function recolorLeaf(leaf: Leaf, tint: Tint): Promise<string | null> {
  * instead of a hole, so the same blur reads a believable neighbour there.
  */
 /** Twice the signed area of a closed loop (shoelace formula) — its SIGN is
- *  all that's used here: which rotational direction the points wind in. */
-/** @internal — exported for tests, not part of the module's API. */
+ *
+ * @internal — exported for tests, not part of the module's API.
+ */
 export function signedArea(pts: { x: number; y: number }[]): number {
   let a = 0;
   for (let i = 0; i < pts.length; i++) {
@@ -300,8 +308,9 @@ export function signedArea(pts: { x: number; y: number }[]): number {
  *  A hole must wind OPPOSITE its outer loop for the nonzero fill rule to
  *  cancel it out — but a hand-traced loop can come in clicked in either
  *  rotational direction, so the winding is corrected here rather than left
- *  to chance (or explained to whoever is dragging points on a photo). */
-/** @internal — exported for tests, not part of the module's API. */
+ *
+ * @internal — exported for tests, not part of the module's API.
+ */
 export function windLike(pts: { x: number; y: number }[], ref: number): { x: number; y: number }[] {
   return Math.sign(signedArea(pts)) === Math.sign(ref) ? pts : [...pts].reverse();
 }
@@ -336,8 +345,9 @@ function addLoop(path: Path2D, pts: { x: number; y: number }[], w: number, h: nu
  * Pieces that DO touch still share one derivation, which is what the shared
  * crop was for: a plinth foot against the shaft it sits under, or a room's
  * crown against its ring, must not disagree right where they meet.
+ *
+ * @internal — exported for tests, not part of the module's API.
  */
-/** @internal — exported for tests, not part of the module's API. */
 export function groupTouching(boxes: TrimPiece[]): TrimPiece[][] {
   const parent = boxes.map((_, i) => i);
   const find = (i: number): number => (parent[i] === i ? i : (parent[i] = find(parent[i])));
@@ -484,9 +494,21 @@ export function maskTrim(id: string, source: string, boxes: TrimPiece[], punch?:
  * Resolve an async render to a URL, with a fallback while it runs — the
  * original image, so a door in mid-recolour simply shows as photographed for
  * a frame rather than flashing blank.
+ *
+ * oxlint reports "contains a call to setState [with] no list of dependencies"
+ * below. That is a false positive, and suppressed rather than obeyed: there IS
+ * a dependency list — it is the `deps` parameter, which the linter cannot see
+ * through because it is a variable. Every call site passes a fixed-length array
+ * literal, so React's constant-length requirement holds.
+ *
+ * Callers must pass STABLE dependencies. A fresh array or object computed in a
+ * render body re-runs this effect every render and blanks the layer each time;
+ * that has now been the cause of two separate visible flickers (WallStage's
+ * trim tint, DoorBench's masked preview), so it is worth stating here.
  */
 export function useRender(make: () => Promise<string | null>, fallback: string, deps: unknown[]): string {
   const [url, setUrl] = useState<string>(fallback);
+  // eslint-disable-next-line react-hooks/exhaustive-deps -- `deps` IS the list; see above.
   useEffect(() => {
     let live = true;
     setUrl(fallback);

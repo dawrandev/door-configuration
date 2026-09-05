@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { COLOR, RADIUS, RADIUS_SM, TYPE } from '../design/tokens';
 import { rectify, encodeAlpha, photoMargin, type Pt, type Margin } from './rectify';
-import { saveTrimModel, type AdminTrim } from './adminStore';
+import { saveTrimModel, STORAGE_FULL, type AdminTrim } from './adminStore';
 import {
   Panel, PanelBody, PanelFooter, Label, Section, inp, AdminPrimaryButton, Seg, Handle, Pad, DANGER, useToast, ROLE_ORDER, ROLE_META, RoleChip, MoveResize,
 } from './adminKit';
@@ -217,27 +217,39 @@ export function TrimBench({ onDone, edit }: { onDone: () => void; edit?: AdminTr
   const publish = () => {
     if (!img || corners.length !== 4 || trim.length === 0) return;
     setBusy(true);
-    const tc = rectify(img, corners as [Pt, Pt, Pt, Pt], 1200, marginObj);
-    // Sized so the marked opening keeps about 600px across it, whatever the
-    // photograph reveals around it.
-    const scale = Math.min(1, Math.min(1600, 600 * padW) / tc.width);
-    const small = document.createElement('canvas');
-    small.width = Math.round(tc.width * scale);
-    small.height = Math.round(tc.height * scale);
-    small.getContext('2d')!.drawImage(tc, 0, 0, small.width, small.height);
-    const trimSource = encodeAlpha(small, 0.85);
+    try {
+      const tc = rectify(img, corners as [Pt, Pt, Pt, Pt], 1200, marginObj);
+      // Sized so the marked opening keeps about 600px across it, whatever the
+      // photograph reveals around it.
+      const scale = Math.min(1, Math.min(1600, 600 * padW) / tc.width);
+      const small = document.createElement('canvas');
+      small.width = Math.round(tc.width * scale);
+      small.height = Math.round(tc.height * scale);
+      small.getContext('2d')!.drawImage(tc, 0, 0, small.width, small.height);
+      const trimSource = encodeAlpha(small, 0.85);
 
-    saveTrimModel({
-      id: edit?.id ?? 'a-' + Date.now().toString(36),
-      name: { uz: name || 'Nalichnik', kk: name || 'Naličnik', ru: name || 'Наличник' },
-      category,
-      trimMargin: marginObj,
-      trimBoxes: trim.map(toStoredTrim),
-      trimSource,
-      createdAt: edit?.createdAt ?? Date.now(),
-      source: source ?? edit?.source,
-      corners: corners.map((c) => ({ x: +(c.x / img.width).toFixed(4), y: +(c.y / img.height).toFixed(4) })),
-    });
+      saveTrimModel({
+        id: edit?.id ?? 'a-' + Date.now().toString(36),
+        name: { uz: name || 'Nalichnik', kk: name || 'Naličnik', ru: name || 'Наличник' },
+        category,
+        trimMargin: marginObj,
+        trimBoxes: trim.map(toStoredTrim),
+        trimSource,
+        createdAt: edit?.createdAt ?? Date.now(),
+        source: source ?? edit?.source,
+        corners: corners.map((c) => ({ x: +(c.x / img.width).toFixed(4), y: +(c.y / img.height).toFixed(4) })),
+      });
+    } catch (err) {
+      // Same failure the door bench already guards against: a full storage
+      // drawer throws out of saveTrimModel, and without this the button stuck
+      // on "Saqlanmoqda…" with nothing said. A trim design carries two encoded
+      // images of its own, so it is not a small record either.
+      setBusy(false);
+      toast(err instanceof Error && err.message === STORAGE_FULL
+        ? 'Xotira to‘lgan — eski nalichnik/korona yoki eshiklarni o‘chiring'
+        : 'Saqlashda xatolik — qaytadan urinib ko‘ring');
+      return;
+    }
     setBusy(false);
     toast('Saqlandi ✓');
     onDone();

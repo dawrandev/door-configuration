@@ -265,6 +265,13 @@ export function DoorBench({ onDone, edit }: { onDone: () => void; edit?: AdminLe
    * source feature). A door saved before that has no source, so the bench keeps
    * the name and options but asks for the photo again — and republishes under
    * the same id, so it is edited, not duplicated.
+   *
+   * oxlint wants `colors` in the dependency list. Adding it would be a
+   * regression, not a fix: `addColor` calls setColors, which would re-run this
+   * whole effect and reset the name, the stage and every traced piece — so
+   * registering a new paint would wipe the form out from under the operator
+   * mid-edit. `colors` is read once here to seed the default selection and is
+   * deliberately a snapshot at reopen time.
    */
   useEffect(() => {
     if (!edit) return;
@@ -320,6 +327,7 @@ export function DoorBench({ onDone, edit }: { onDone: () => void; edit?: AdminLe
       }
     };
     el.src = edit.source;
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- see the docblock: adding `colors` resets the form mid-edit.
   }, [edit]);
 
   const onFile = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -377,7 +385,18 @@ export function DoorBench({ onDone, edit }: { onDone: () => void; edit?: AdminLe
       hex,
       createdAt: Date.now(),
     };
-    saveColor(color);
+    // Registering a paint is its own write, outside publish, so it needs its
+    // own guard: the local list is only extended once the store has actually
+    // taken it, or the bench would offer a colour that does not exist and the
+    // door would publish a colorIds entry pointing at nothing.
+    try {
+      saveColor(color);
+    } catch (err) {
+      toast(err instanceof Error && err.message === STORAGE_FULL
+        ? 'Xotira to‘lgan — rang qo‘shilmadi'
+        : 'Rang saqlanmadi — qaytadan urinib ko‘ring');
+      return;
+    }
     setColors((cs) => [...cs, color]);
     setSelected((s) => new Set(s).add(color.id));
     setNewColorName('');
@@ -706,8 +725,17 @@ export function DoorBench({ onDone, edit }: { onDone: () => void; edit?: AdminLe
   /** Only the pieces this stage owns. Each stage is cut, judged and named on
    *  its own, so the nalichnik's pieces must never appear while the korona is
    *  being worked on — that mixing is what made a bad trace impossible to
-   *  attribute to one or the other. */
-  const stagePieces = trimStage ? trim.filter((t) => STAGE_ROLES[trimStage].includes(t.role) || (trimStage === 'nalichnik' && t.role === 'extra')) : [];
+   *  attribute to one or the other.
+   *
+   *  Memoized because `maskedPreview` below takes it as a dependency, and
+   *  `useRender` blanks its layer on every dep change (recolor.ts). A fresh
+   *  array each render meant the cut-out preview flickered off and re-derived
+   *  on every keystroke and every drag frame — the same defect, from the same
+   *  cause, that WallStage's trim layer was already fixed for once. */
+  const stagePieces = useMemo(
+    () => (trimStage ? trim.filter((t) => STAGE_ROLES[trimStage].includes(t.role) || (trimStage === 'nalichnik' && t.role === 'extra')) : []),
+    [trimStage, trim]
+  );
   // On a trim stage the studio shows the padded, flattened crop the trim is
   // traced against instead of the raw photo.
   const showTrimStudio = !!trimStage && !!paddedImg;
