@@ -6,7 +6,7 @@ export const LEAVES: Leaf[] = [
   {
     id: 'lattice',
     name: { uz: 'Romb naqsh', kk: 'Romb naqıs', ru: 'Ромб' },
-    image: '/assets/leaves/lattice.png',
+    image: '/assets/leaves/lattice.webp',
     /** measured, not assumed — see tools/leaves.mjs */
     aspect: 0.3939,
     handleSide: 'left',
@@ -21,7 +21,7 @@ export const LEAVES: Leaf[] = [
   {
     id: 'classic',
     name: { uz: 'Klassik panel', kk: 'Klassik panel', ru: 'Классическая' },
-    image: '/assets/leaves/classic.png',
+    image: '/assets/leaves/classic.webp',
     /** measured, not assumed — see tools/leaves.mjs */
     aspect: 0.3972,
     handleSide: 'left',
@@ -36,7 +36,7 @@ export const LEAVES: Leaf[] = [
   {
     id: 'twopanel',
     name: { uz: 'Ikki panel', kk: 'Eki panel', ru: 'Две филёнки' },
-    image: '/assets/leaves/twopanel.png',
+    image: '/assets/leaves/twopanel.webp',
     /** measured, not assumed — see tools/leaves.mjs */
     aspect: 0.3988,
     handleSide: 'left',
@@ -51,7 +51,7 @@ export const LEAVES: Leaf[] = [
   {
     id: 'rosette',
     name: { uz: 'Rozetka', kk: 'Rozetka', ru: 'Розетка' },
-    image: '/assets/leaves/rosette.png',
+    image: '/assets/leaves/rosette.webp',
     /** measured, not assumed — see tools/leaves.mjs */
     aspect: 0.3483,
     handleSide: 'right',

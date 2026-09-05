@@ -701,8 +701,23 @@ for (const s of SOURCES) {
   const strip = s.handle === false ? { ok: false, why: 'kept by request' } : stripHandle(leaf, OW, OH);
   const norm = neutralise(leaf, OW, OH, data, W, H, C, quad, s.white === true);
 
-  const file = path.join(OUT, `${s.id}.png`);
-  await sharp(leaf, { raw: { width: OW, height: OH, channels: 3 } }).png({ compressionLevel: 9 }).toFile(file);
+  /**
+   * WebP, not PNG. These leaves are opaque three-channel photographs, so
+   * lossless costs everything and buys nothing: the four of them came to
+   * 16.1MB as PNG and come to 0.69MB at q94, the same 1400px wide, and
+   * WallStage preloads every one of them on mount.
+   *
+   * The width is deliberately NOT reduced. recolor.ts composites at
+   * WORK_W=1024, but that governs only the recoloured path — at the default
+   * 'oq' finish tintFor returns null and the stage displays this file
+   * directly at full size, so here source resolution IS display resolution.
+   *
+   * q94 rather than something more aggressive because the recolour divides
+   * L by blur(L), which amplifies compression artefacts in exactly the smooth
+   * gradients a door is mostly made of. The extra 0.27MB is cheap insurance.
+   */
+  const file = path.join(OUT, `${s.id}.webp`);
+  await sharp(leaf, { raw: { width: OW, height: OH, channels: 3 } }).webp({ quality: 94 }).toFile(file);
 
   /**
    * A compact source, so the bench can reopen a built-in door and re-cut it just
@@ -769,7 +784,7 @@ ${done
     (d) => `  {
     id: '${d.id}',
     name: { uz: '${d.name.uz}', kk: '${d.name.kk}', ru: '${d.name.ru}' },
-    image: '/assets/leaves/${d.id}.png',
+    image: '/assets/leaves/${d.id}.webp',
     /** measured, not assumed — see tools/leaves.mjs */
     aspect: ${d.aspect.toFixed(4)},
     handleSide: '${d.handleSide}',

@@ -28,3 +28,6 @@ Thumbs.db
 
 # contact sheets the tools emit for review
 kiosk/tools/_*.jpg
+
+# smoke-test screenshots
+kiosk/_smoke/

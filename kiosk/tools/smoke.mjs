@@ -89,13 +89,30 @@ try {
    */
   const startOver = page.getByRole('button', { name: 'Boshidan boshlash' });
   let steps = 0;
+  let painted = false;
   while (!(await startOver.isVisible()) && steps < 8) {
+    /**
+     * Paint the door on the way past, because the default finish does NOT
+     * exercise the recolour: 'oq' short-circuits to the photograph untouched
+     * (colors.ts tintFor returns null), so a journey that never picks a colour
+     * never runs derivePasses at all — and that is the code most likely to
+     * break, and the code the asset format feeds directly.
+     */
+    const paint = page.getByRole('button', { name: 'Grafit' });
+    if (!painted && (await paint.count()) > 0 && (await paint.first().isVisible())) {
+      await paint.first().click();
+      // The recolour is a real derive + composite; give it room to land.
+      await page.waitForTimeout(1500);
+      painted = true;
+      await shoot(`${steps + 1}-painted`);
+    }
     await page.getByRole('button', { name: /Davom etish/ }).click();
     await page.waitForTimeout(600);
     steps++;
     await shoot(`${steps + 1}-step`);
   }
   if (!(await startOver.isVisible())) problems.push(`never reached the summary after ${steps} steps`);
+  if (!painted) problems.push('never found a colour to paint the door with');
 
   /**
    * The claim the whole project rests on: there is a door in the doorway. A
