@@ -1,14 +1,17 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { COLOR, RADIUS, RADIUS_SM, TOUCH_MIN, TYPE } from '../design/tokens';
-import { rectify, stripHandle, neutraliseWhite, encodeAlpha, type Pt, type Margin } from './rectify';
-import { saveLeaf, saveTrimModel, mergeColors, saveColor, STORAGE_FULL, type AdminLeaf, type AdminColor, type AdminTrim } from './adminStore';
+import { rectify, stripHandle, neutraliseWhite, encodeAlpha, looksWhite, photoMargin, type Pt, type Margin } from './rectify';
+import {
+  saveLeaf, saveTrimModel, mergeColors, saveColor, derivedTrimId, findDoorTrim, loadTrimEdits, STORAGE_FULL,
+  type AdminLeaf, type AdminColor, type AdminTrim,
+} from './adminStore';
 import { COLORS as BASE_COLORS, type DoorColor } from '../catalog/colors';
 import {
   Panel, PanelBody, PanelFooter, Label, Section, inp, AdminPrimaryButton, AdminGhostButton, Seg, Pad, Handle, DANGER, useToast, ROLE_ORDER, ROLE_META, RoleChip, MoveResize,
 } from './adminKit';
-import { bboxOfPoints, seedPoints, defaultRectFor, nearestLoop, toStoredTrim, type TrimPieceState } from './trimGeometry';
+import { bboxOfPoints, seedPoints, defaultRectFor, nearestLoop, toStoredTrim, toTrimState, type TrimPieceState } from './trimGeometry';
 import { maskTrim, useRender } from '../render/recolor';
-import type { TrimRole } from '../catalog/types';
+import type { TrimPiece, TrimRole } from '../catalog/types';
 
 /** Every role offered when marking which nalichnik/korona pieces a door
  *  comes with — the four standard ones plus "Boshqa", so a door that comes
@@ -53,40 +56,81 @@ const NALICHNIK_SIDES = [
 ] as const;
 
 /**
- * The widest reveal this particular photograph can actually support.
+ * A starting strip down one side of the door.
  *
- * The rectify only has the camera's own pixels to draw on, so past some width
- * the margin is empty rather than casing — and where that limit falls depends
- * entirely on how tightly the door was framed, which is not a thing to ask an
- * operator to guess at with a slider. Measured at thumbnail size, so trying
- * several widths costs nothing.
+ * Sized off the DOOR, not off however much photo happens to surround it: a
+ * real 70-100mm casing on an 800mm leaf is about a tenth of the door's own
+ * width, and that is true whatever the photograph shows. Taking it from the
+ * reveal instead is what once seeded strips four times too fat the moment the
+ * reveal stopped being a fixed number.
  */
-function fitMargin(img: HTMLImageElement, corners: [Pt, Pt, Pt, Pt]): number {
-  for (const m of [0.4, 0.32, 0.26, 0.2, 0.15, 0.1, 0.06]) {
-    try {
-      const c = rectify(img, corners, 180, { left: m, right: m, top: m, bottom: m });
-      const d = c.getContext('2d')!.getImageData(0, 0, c.width, c.height).data;
-      let empty = 0;
-      for (let i = 3; i < d.length; i += 4) if (d[i] === 0) empty++;
-      if (empty / (c.width * c.height) < 0.02) return m;
-    } catch { /* a degenerate quad — fall through to the narrowest reveal */ }
-  }
-  return 0.06;
+const CASING_OF_DOOR = 0.10;
+function sideStrip(side: 'left' | 'right', ref: { x: number; y: number; w: number; h: number }) {
+  const w = Math.min(ref.w * CASING_OF_DOOR, 0.45);
+  const x = side === 'left' ? ref.x - w * 0.9 : ref.x + ref.w - w * 0.1;
+  // A little past the leaf's foot, where the plinth block sits.
+  const h = Math.min(ref.h * 1.06, 1 - ref.y);
+  return { x: Math.max(0, Math.min(1 - w, x)), y: ref.y, w, h };
+}
+/**
+ * Stored boxes back into editable outlines, with the ids this bench works in.
+ *
+ * `toStoredTrim` keeps a piece's role, label and points but not its id, and
+ * here the id is semantic: the side chips and the auto-seeding check both key
+ * off `shaft-left` / `shaft-right`. A stored label names the side when the
+ * piece came from this bench; otherwise the side is read off the box's own
+ * centre, which works at any margin because the leaf's centre sits at exactly
+ * 0.5 of the padded canvas — `(m + 0.5) / (1 + 2m) = 0.5`.
+ */
+function restorePieces(boxes: TrimPiece[] | undefined): TrimPieceState[] {
+  if (!boxes?.length) return [];
+  const used = new Set<string>();
+  return boxes.map((b, i) => {
+    let id: string;
+    let label = b.label;
+    if (b.role === 'crown') {
+      id = 'crown';
+    } else if (b.role === 'shaft') {
+      const named = NALICHNIK_SIDES.find((s) => s.label === b.label);
+      const side = named ?? (b.x + b.w / 2 < 0.5 ? NALICHNIK_SIDES[0] : NALICHNIK_SIDES[1]);
+      id = side.id;
+      label = side.label;
+    } else if (!b.role || b.role === 'extra') {
+      id = `extra-${i}`;
+      label = b.label ?? `Boshqa ${i + 1}`;
+    } else {
+      id = b.role;
+    }
+    // Two pieces sharing an id would drag together, since every edit maps
+    // over `trim` by id.
+    while (used.has(id)) id += '-2';
+    used.add(id);
+    return toTrimState(id, b, b.role ?? 'extra', label);
+  });
 }
 
-/** A starting strip down one side of the door, inside the revealed margin.
- *  `ref` is the leaf's own rect within the padded canvas, so `ref.x` is
- *  exactly how much photo was revealed beside it. */
-function sideStrip(side: 'left' | 'right', ref: { x: number; y: number; w: number; h: number }) {
-  const reveal = ref.x;
-  return {
-    x: side === 'left' ? reveal * 0.15 : ref.x + ref.w - reveal * 0.1,
-    y: ref.y,
-    w: reveal * 0.95,
-    // Down past the leaf's foot, where the plinth block sits.
-    h: Math.min(ref.h + ref.y * 0.6, 1 - ref.y),
-  };
+/**
+ * The same outlines, re-expressed against a different reveal.
+ *
+ * Pieces are stored as fractions of the PADDED canvas, but the reveal is now
+ * measured from the photograph — so nudging a corner moves the canvas out
+ * from under a saved trace. Converting through leaf units (0 = the leaf's own
+ * left edge, 1 = its right) anchors every outline to the DOOR, which is what
+ * it was traced against in the first place.
+ */
+function remapPieces(pieces: TrimPieceState[], from: Margin, to: Margin): TrimPieceState[] {
+  const fw = 1 + from.left + from.right, fh = 1 + from.top + from.bottom;
+  const tw = 1 + to.left + to.right, th = 1 + to.top + to.bottom;
+  if (Math.abs(fw - tw) < 1e-6 && Math.abs(fh - th) < 1e-6 && Math.abs(from.left - to.left) < 1e-6 && Math.abs(from.top - to.top) < 1e-6) return pieces;
+  const mx = (x: number) => (x * fw - from.left + to.left) / tw;
+  const my = (y: number) => (y * fh - from.top + to.top) / th;
+  const pts = (ps: { x: number; y: number }[]) => ps.map((q) => ({ x: mx(q.x), y: my(q.y) }));
+  return pieces.map((t) => {
+    const points = pts(t.points);
+    return { ...t, points, holePoints: t.holePoints && pts(t.holePoints), rect: bboxOfPoints(points) };
+  });
 }
+
 const STAGE_HINT: Record<Stage, string> = {
   door: 'Eshik yuzasining 4 burchagini belgilang — ramkani emas, tavaqani.',
   nalichnik: 'Eshikning ikki yonidagi nalichniklarni chizing — tepasi emas, u korona. Bu eshikda bo‘lmasa, o‘tkazib yuboring.',
@@ -117,19 +161,28 @@ const LABELS = ['Yuqori chap', 'Yuqori o‘ng', 'Past o‘ng', 'Past chap'];
 /** Where in the four stages this door is. An orientation aid only — the
  *  stages are walked with the footer buttons, so there is never a way to
  *  land on one without the one before it being settled. */
-function Stepper({ stage }: { stage: Stage }) {
+function Stepper({ stage, onGo, enabled }: { stage: Stage; onGo: (s: Stage) => void; enabled: boolean }) {
   const at = STAGES.findIndex((s) => s.id === stage);
   return (
     <div style={{ display: 'flex', gap: 4, margin: '12px 0 10px' }}>
       {STAGES.map((s, i) => {
         const now = i === at;
         return (
-          <div key={s.id} style={{ flex: 1, minWidth: 0 }}>
+          <button
+            key={s.id}
+            type="button"
+            onClick={() => { if (enabled && !now) onGo(s.id); }}
+            disabled={!enabled || now}
+            style={{
+              flex: 1, minWidth: 0, textAlign: 'left', padding: 0, border: 'none', background: 'none',
+              fontFamily: 'inherit', cursor: enabled && !now ? 'pointer' : 'default',
+            }}
+          >
             <div style={{ height: 3, borderRadius: 2, background: now ? COLOR.brass : i < at ? 'rgba(143,113,69,.45)' : COLOR.line }} />
             <div style={{ marginTop: 5, fontSize: 11, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', color: now ? COLOR.ink : COLOR.inkSoft, fontWeight: now ? 600 : 400 }}>
               {i + 1}. {s.label}
             </div>
-          </div>
+          </button>
         );
       })}
     </div>
@@ -193,7 +246,6 @@ export function DoorBench({ onDone, edit }: { onDone: () => void; edit?: AdminLe
   /** Fraction of the leaf's own width/height to reveal on every side —
    *  uniform rather than four independent sliders, since a door photographed
    *  square-on shows roughly as much casing on every side. */
-  const [margin, setMargin] = useState(0.15);
   const [trim, setTrim] = useState<TrimPieceState[]>([]);
   const [activeTrimId, setActiveTrimId] = useState<string | null>(null);
   const [paddedImg, setPaddedImg] = useState<HTMLImageElement | null>(null);
@@ -220,11 +272,21 @@ export function DoorBench({ onDone, edit }: { onDone: () => void; edit?: AdminLe
     setWhite(edit.white ?? true);
     setSelected(new Set(edit.colorIds ?? colors.map((c) => c.id)));
     setTrimRoles(new Set(edit.trimRoles ?? DOOR_TRIM_ROLES));
-    // A door no longer carries its own trim data — reopening one never
-    // brings back a previous trace (there's nothing left to bring back;
-    // whatever was traced before is out in the catalog under its own id).
     setStage('door');
+
+    // What this door traced last time, back as editable outlines. It lives
+    // in the trim catalog under an id derived from the door, so there is no
+    // back-reference to keep in sync — and reopening is meant to be a nudge,
+    // not a re-trace from nothing.
+    const names = loadTrimEdits();
+    const nal = findDoorTrim(edit.id, 'nalichnik');
+    const kor = findDoorTrim(edit.id, 'korona');
+    const stored = [...restorePieces(nal?.trimBoxes), ...restorePieces(kor?.trimBoxes)];
     setTrim([]);
+    setActiveTrimId(null);
+    setNalichnikName(nal ? (names[nal.id]?.name ?? nal.name.uz) : '');
+    setKoronaName(kor ? (names[kor.id]?.name ?? kor.name.uz) : '');
+
     if (!edit.source) return;
     const el = new Image();
     el.onload = () => {
@@ -241,6 +303,21 @@ export function DoorBench({ onDone, edit }: { onDone: () => void; edit?: AdminLe
               { x: el.width * 0.28, y: el.height * 0.92 },
             ]
       );
+      // Only now is there a photograph to measure the reveal against, so the
+      // stored outlines are moved onto it here rather than at a margin that
+      // was still zero a moment ago.
+      if (stored.length) {
+        const quad = (edit.corners?.length === 4
+          ? edit.corners.map((c) => ({ x: c.x * el.width, y: c.y * el.height }))
+          : [
+              { x: el.width * 0.28, y: el.height * 0.12 },
+              { x: el.width * 0.72, y: el.height * 0.12 },
+              { x: el.width * 0.72, y: el.height * 0.92 },
+              { x: el.width * 0.28, y: el.height * 0.92 },
+            ]) as [Pt, Pt, Pt, Pt];
+        const was = (nal ?? kor)!.trimMargin;
+        setTrim(remapPieces(stored, was, photoMargin(el, quad)));
+      }
     };
     el.src = edit.source;
   }, [edit]);
@@ -260,6 +337,17 @@ export function DoorBench({ onDone, edit }: { onDone: () => void; edit?: AdminLe
         { x: el.width * 0.28, y: el.height * 0.92 },
       ]);
       setResult(null);
+      // Whether to even the white point is a fact about the door, not a
+      // preference: run on a grey or wood one it bleaches the finish away,
+      // and the photograph is then gone for good. Read it off the picture.
+      try {
+        setWhite(looksWhite(rectify(el, [
+          { x: el.width * 0.28, y: el.height * 0.12 },
+          { x: el.width * 0.72, y: el.height * 0.12 },
+          { x: el.width * 0.72, y: el.height * 0.92 },
+          { x: el.width * 0.28, y: el.height * 0.92 },
+        ], 300)));
+      } catch { setWhite(false); }
       setStage('door');
       setTrim([]);
       setActiveTrimId(null);
@@ -335,12 +423,20 @@ export function DoorBench({ onDone, edit }: { onDone: () => void; edit?: AdminLe
     return () => window.clearTimeout(t);
   }, [img, corners, white, handleSide]);
 
-  const marginObj: Margin = { left: margin, right: margin, top: margin, bottom: margin };
+  /** How far past the door the photograph actually reaches — measured from
+   *  the photograph itself rather than chosen on a slider, so the tracing
+   *  canvas is simply the picture that was uploaded. */
+  const marginObj: Margin = useMemo(
+    () => (img && corners.length === 4 ? photoMargin(img, corners as [Pt, Pt, Pt, Pt]) : { left: 0, right: 0, top: 0, bottom: 0 }),
+    [img, corners]
+  );
   /** Where the leaf itself sits within the padded canvas, as fractions of
    *  THAT canvas — what a fresh trim piece is measured against, the same
-   *  way a room's trim is measured against its doorway. */
-  const paddedFrac = 1 + margin * 2;
-  const leafRef = { x: margin / paddedFrac, y: margin / paddedFrac, w: 1 / paddedFrac, h: 1 / paddedFrac };
+   *  way a room's trim is measured against its doorway. Per side, since the
+   *  photo rarely shows as much on the left as on the right. */
+  const padW = 1 + marginObj.left + marginObj.right;
+  const padH = 1 + marginObj.top + marginObj.bottom;
+  const leafRef = { x: marginObj.left / padW, y: marginObj.top / padH, w: 1 / padW, h: 1 / padH };
 
   /** A live, low-res look at the padded/rectified crop trim gets traced
    *  on — the exact flattening the leaf itself gets, just extended past its
@@ -363,7 +459,7 @@ export function DoorBench({ onDone, edit }: { onDone: () => void; edit?: AdminLe
     }, 120);
     return () => { live = false; window.clearTimeout(t); };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [onTrimStage, img, corners, margin]);
+  }, [onTrimStage, img, corners, marginObj]);
 
   const toTrimFrac = useCallback((cx: number, cy: number) => {
     const r = trimWrapRef.current!.getBoundingClientRect();
@@ -460,16 +556,8 @@ export function DoorBench({ onDone, edit }: { onDone: () => void; edit?: AdminLe
     // both already laid down the sides — there is no other shape to choose,
     // and starting from them is what keeps the top band and the wall out.
     if (next === 'nalichnik' && !trim.some((t) => roles.includes(t.role))) {
-      // How far out the photo can be opened is measured from the photo
-      // itself, not left on a slider for someone to guess — and it has to
-      // settle BEFORE the strips are laid, since they are placed inside
-      // whatever it reveals.
-      const m = img && corners.length === 4 ? fitMargin(img, corners as [Pt, Pt, Pt, Pt]) : margin;
-      setMargin(m);
-      const pad = 1 + m * 2;
-      const ref = { x: m / pad, y: m / pad, w: 1 / pad, h: 1 / pad };
       const seeded = NALICHNIK_SIDES.map((s) => {
-        const rect = sideStrip(s.id === 'shaft-left' ? 'left' : 'right', ref);
+        const rect = sideStrip(s.id === 'shaft-left' ? 'left' : 'right', leafRef);
         return { id: s.id, role: 'shaft' as TrimRole, label: s.label, rect, points: seedPoints(rect) };
       });
       setTrim((ts) => [...ts, ...seeded]);
@@ -537,8 +625,9 @@ export function DoorBench({ onDone, edit }: { onDone: () => void; edit?: AdminLe
     const topW = Math.hypot(TR.x - TL.x, TR.y - TL.y);
     const botW = Math.hypot(BR.x - BL.x, BR.y - BL.y);
     const hgt = (Math.hypot(BL.x - TL.x, BL.y - TL.y) + Math.hypot(BR.x - TR.x, BR.y - TR.y)) / 2;
+    const leafId = edit?.id ?? 'a-' + Date.now().toString(36);
     saveLeaf({
-      id: edit?.id ?? 'a-' + Date.now().toString(36),
+      id: leafId,
       name: { uz: name || 'Eshik', kk: name || 'Esik', ru: name || 'Дверь' },
       image,
       aspect: +(((topW + botW) / 2) / hgt).toFixed(4),
@@ -568,10 +657,11 @@ export function DoorBench({ onDone, edit }: { onDone: () => void; edit?: AdminLe
     // differs.
     if (trim.length > 0) {
       const tc = rectify(img, corners as [Pt, Pt, Pt, Pt], 1200, marginObj);
-      // 600, not 1000: the renderer downsamples every casing to CASING_W
-      // (512) before it does anything, so the extra pixels were only ever
-      // spending the storage budget that later refused a save outright.
-      const tscale = Math.min(1, 600 / tc.width);
+      // Sized so the DOOR keeps about 600px across it, not the whole padded
+      // canvas: now that the reveal is whatever the photograph shows, a flat
+      // total would leave the casing itself coarse. Capped, since every one
+      // of these sits in the same storage budget that once refused a save.
+      const tscale = Math.min(1, Math.min(1600, 600 * (1 + marginObj.left + marginObj.right)) / tc.width);
       const tsmall = document.createElement('canvas');
       tsmall.width = Math.round(tc.width * tscale);
       tsmall.height = Math.round(tc.height * tscale);
@@ -583,17 +673,22 @@ export function DoorBench({ onDone, edit }: { onDone: () => void; edit?: AdminLe
       const koronaPieces = trim.filter((t) => t.role === 'crown');
 
       const publishCategory = (category: 'nalichnik' | 'korona', pieces: TrimPieceState[]) => {
+        // Nothing traced for this category: leave whatever was published
+        // before exactly as it is. A design is independent once it is out in
+        // the catalog, and the finish stage says so rather than quietly
+        // deleting something a customer may already be choosing.
         if (!pieces.length) return;
         const label = category === 'nalichnik' ? 'Nalichnik' : 'Korona';
         const name = (category === 'nalichnik' ? nalichnikName : koronaName).trim() || label;
+        const already = findDoorTrim(leafId, category);
         const catalogTrim: AdminTrim = {
-          id: 'a-' + Date.now().toString(36) + '-' + category,
+          id: derivedTrimId(leafId, category),
           name: { uz: name, kk: name, ru: name },
           category,
           trimMargin: marginObj,
           trimBoxes: pieces.map(toStoredTrim),
           trimSource,
-          createdAt: Date.now(),
+          createdAt: already?.createdAt ?? Date.now(),
           source: source ?? edit?.source,
           corners: trimCorners,
         };
@@ -630,8 +725,23 @@ export function DoorBench({ onDone, edit }: { onDone: () => void; edit?: AdminLe
   const maskedPreview = useRender(
     () => (showResult && paddedImg && stagePieces.length ? maskTrim(`bench-${stage}`, paddedImg.src, stagePieces.map(toStoredTrim), leafRef) : Promise.resolve(null)),
     '',
-    [showResult, paddedImg, stagePieces, stage, margin]
+    [showResult, paddedImg, stagePieces, stage, marginObj]
   );
+  /** What the photograph itself says about the door's paint — the warning
+   *  beside the switch compares the operator's choice against it. */
+  const whiteFromPhoto = useMemo(() => {
+    if (!img || corners.length !== 4) return true;
+    try { return looksWhite(rectify(img, corners as [Pt, Pt, Pt, Pt], 300)); } catch { return true; }
+  }, [img, corners]);
+
+  /** Categories this door published before but has nothing traced for now.
+   *  Their designs stay in the catalog on purpose; this is what keeps that
+   *  from being a silent mismatch. */
+  const orphaned = (edit ? (['nalichnik', 'korona'] as const) : []).filter((c) => {
+    const has = c === 'korona' ? trim.some((t) => t.role === 'crown') : trim.some((t) => NALICHNIK_ROLES.includes(t.role));
+    return !has && !!findDoorTrim(edit!.id, c);
+  }).map((c) => (c === 'korona' ? 'korona' : 'nalichnik'));
+
   const tDispW = paddedImg ? paddedImg.width * zoom : 0;
   const tDispH = paddedImg ? paddedImg.height * zoom : 0;
 
@@ -743,7 +853,7 @@ export function DoorBench({ onDone, edit }: { onDone: () => void; edit?: AdminLe
           {!img && <div style={{ ...TYPE.small, color: COLOR.inkSoft }}>Boshlash uchun eshik rasmini yuklang.</div>}
           {img && (
             <>
-              <Stepper stage={stage} />
+              <Stepper stage={stage} onGo={goStage} enabled={!!live} />
               <div style={{ ...TYPE.small, color: COLOR.inkSoft }}>{STAGE_HINT[stage]}</div>
 
               {stage === 'door' && (
@@ -763,6 +873,18 @@ export function DoorBench({ onDone, edit }: { onDone: () => void; edit?: AdminLe
                 <input value={name} onChange={(e) => setName(e.target.value)} style={inp} placeholder="Masalan: Feruza klassik" />
                 <Label>Rangi</Label>
                 <Seg opts={[{ id: 't', label: 'Oq bo‘yoq' }, { id: 'f', label: 'Rangli' }]} value={white ? 't' : 'f'} onPick={(v) => setWhite(v === 't')} />
+                <div style={{ fontSize: 12, color: COLOR.inkSoft, lineHeight: 1.5, marginTop: 6 }}>
+                  «Oq bo‘yoq» eshikning oq rangini bir xil oqqa keltiradi —
+                  faqat haqiqatan oq eshiklar uchun. Rangli eshikda uni yoqsangiz
+                  surat oqarib ketadi va orqaga qaytarib bo‘lmaydi. Surat
+                  bo‘yicha o‘zi tanlandi.
+                </div>
+                {white && !whiteFromPhoto && (
+                  <div style={{ fontSize: 12, color: DANGER.text, lineHeight: 1.5, marginTop: 6 }}>
+                    Bu surat rangli eshikka o‘xshaydi, lekin «Oq bo‘yoq» yoqilgan —
+                    shu holda nashr qilinsa rangi oqarib ketadi. «Rangli» ni tanlang.
+                  </div>
+                )}
               </Section>
 
               <Section title="Ranglar — mijoz shu eshik uchun tanlay oladi">
@@ -841,13 +963,6 @@ export function DoorBench({ onDone, edit }: { onDone: () => void; edit?: AdminLe
 
               {onTrimStage && (
                   <>
-                    <Label>Atrofni ochish — {(margin * 100).toFixed(0)}% (avtomatik)</Label>
-                    <input type="range" min={0.03} max={0.4} step={0.01} value={margin} onChange={(e) => setMargin(+e.target.value)} style={{ width: '100%' }} />
-                    <div style={{ fontSize: 12, color: COLOR.inkSoft, lineHeight: 1.5, marginTop: 6 }}>
-                      Suratda eshik atrofida qancha joy borligiga qarab o‘zi
-                      topildi — odatda tegish shart emas. Nalichnik sig‘masa
-                      kengaytiring.
-                    </div>
 
                     {/* Only this stage's own pieces — the korona stage must not
                         offer a side strip, or the two would mix again. */}
@@ -992,6 +1107,14 @@ export function DoorBench({ onDone, edit }: { onDone: () => void; edit?: AdminLe
                 </Section>
               )}
 
+              {stage === 'finish' && orphaned.length > 0 && (
+                <div style={{ fontSize: 12, color: COLOR.inkSoft, lineHeight: 1.5, marginTop: 12, padding: 10, border: `1px solid ${COLOR.line}`, borderRadius: RADIUS_SM }}>
+                  Bu eshikda {orphaned.join(' va ')} chizilmagan, lekin ilgari
+                  nashr qilingani katalogda turibdi va mijozga ko‘rinaveradi.
+                  Kerak bo‘lmasa «Nalichniklar» bo‘limidan o‘chiring.
+                </div>
+              )}
+
               {stage === 'finish' && result && (
                 <div style={{ marginTop: 16 }}>
                   <div style={{ fontSize: 11, color: COLOR.inkSoft, marginBottom: 6 }}>Yakuniy sifat:</div>
@@ -1015,9 +1138,14 @@ export function DoorBench({ onDone, edit }: { onDone: () => void; edit?: AdminLe
                 </AdminGhostButton>
               )}
               {stage === 'door' && (
-                <AdminPrimaryButton onClick={() => goStage('nalichnik')} disabled={!live} style={{ flex: 1 }}>
-                  Davom etish →
-                </AdminPrimaryButton>
+                <>
+                  <AdminGhostButton onClick={onDone} style={{ flex: '0 0 auto', width: 'auto', padding: '0 16px' }}>
+                    ← Orqaga
+                  </AdminGhostButton>
+                  <AdminPrimaryButton onClick={() => goStage('nalichnik')} disabled={!live} style={{ flex: 1 }}>
+                    Davom etish →
+                  </AdminPrimaryButton>
+                </>
               )}
               {onTrimStage && (
                 <AdminPrimaryButton onClick={() => goStage(stage === 'nalichnik' ? 'korona' : 'finish')} style={{ flex: 1 }}>

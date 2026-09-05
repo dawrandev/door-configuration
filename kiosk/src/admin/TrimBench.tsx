@@ -1,6 +1,6 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { COLOR, RADIUS, RADIUS_SM, TYPE } from '../design/tokens';
-import { rectify, encodeAlpha, type Pt, type Margin } from './rectify';
+import { rectify, encodeAlpha, photoMargin, type Pt, type Margin } from './rectify';
 import { saveTrimModel, type AdminTrim } from './adminStore';
 import {
   Panel, PanelBody, PanelFooter, Label, Section, inp, AdminPrimaryButton, Seg, Handle, Pad, DANGER, useToast, ROLE_ORDER, ROLE_META, RoleChip, MoveResize,
@@ -23,9 +23,9 @@ const LABELS = ['Yuqori chap', 'Yuqori o‘ng', 'Past o‘ng', 'Past chap'];
 /**
  * Add a nalichnik/korona DESIGN: upload a photograph (the trim as installed,
  * or a flat sample), mark the four corners of the OPENING it surrounds —
- * not a door face, since no door is attached — then open a margin and trace
- * the pieces. Structurally a trimmed-down clone of DoorBench's "O'z
- * nalichnigini chizish" flow: same `rectify()` margin mechanism, same
+ * not a door face, since no door is attached — then trace the pieces on
+ * whatever the photograph shows around it. Structurally a trimmed-down clone
+ * of DoorBench's own trim stages: same `rectify()` reveal, same
  * point-editing tool (`trimGeometry.ts`), same role chips/list chrome
  * (`adminKit.tsx`) — everything leaf-specific (colours, handle stripping,
  * white balance, `trimRoles`) simply doesn't apply here and is left out.
@@ -43,7 +43,6 @@ export function TrimBench({ onDone, edit }: { onDone: () => void; edit?: AdminTr
   const [busy, setBusy] = useState(false);
   const toast = useToast();
 
-  const [margin, setMargin] = useState(0.15);
   const [trim, setTrim] = useState<TrimPieceState[]>([]);
   const [activeTrimId, setActiveTrimId] = useState<string | null>(null);
   const [paddedImg, setPaddedImg] = useState<HTMLImageElement | null>(null);
@@ -58,7 +57,6 @@ export function TrimBench({ onDone, edit }: { onDone: () => void; edit?: AdminTr
     if (!edit) return;
     setName(edit.name.uz);
     setCategory(edit.category);
-    setMargin(edit.trimMargin.left);
     setTrim(edit.trimBoxes.map((b, i) => toTrimState(`${b.role ?? 'extra'}-${i}`, b)));
     if (!edit.source) return;
     const el = new Image();
@@ -94,7 +92,6 @@ export function TrimBench({ onDone, edit }: { onDone: () => void; edit?: AdminTr
         { x: el.width * 0.72, y: el.height * 0.92 },
         { x: el.width * 0.28, y: el.height * 0.92 },
       ]);
-      setMargin(0.15);
       setTrim([]);
       setActiveTrimId(null);
       if (!name) setName(f.name.replace(/\.[^.]+$/, ''));
@@ -116,11 +113,17 @@ export function TrimBench({ onDone, edit }: { onDone: () => void; edit?: AdminTr
   };
   const nudge = (i: number, dx: number, dy: number) => setCorners((cs) => cs.map((c, k) => (k === i ? { x: c.x + dx, y: c.y + dy } : c)));
 
-  const marginObj: Margin = { left: margin, right: margin, top: margin, bottom: margin };
+  /** Measured from the photograph, not chosen: how far past the marked
+   *  opening the picture reaches is a property of the picture. */
+  const marginObj: Margin = useMemo(
+    () => (img && corners.length === 4 ? photoMargin(img, corners as [Pt, Pt, Pt, Pt]) : { left: 0, right: 0, top: 0, bottom: 0 }),
+    [img, corners]
+  );
   /** Where the notional opening sits within the padded canvas, as fractions
    *  of THAT canvas — what a fresh trim piece is measured against. */
-  const paddedFrac = 1 + margin * 2;
-  const openRef = { x: margin / paddedFrac, y: margin / paddedFrac, w: 1 / paddedFrac, h: 1 / paddedFrac };
+  const padW = 1 + marginObj.left + marginObj.right;
+  const padH = 1 + marginObj.top + marginObj.bottom;
+  const openRef = { x: marginObj.left / padW, y: marginObj.top / padH, w: 1 / padW, h: 1 / padH };
 
   /** A live, low-res look at the padded/rectified crop trim gets traced on
    *  — always active once corners exist, since tracing IS this bench's
@@ -141,7 +144,7 @@ export function TrimBench({ onDone, edit }: { onDone: () => void; edit?: AdminTr
     }, 120);
     return () => { live = false; window.clearTimeout(t); };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [img, corners, margin]);
+  }, [img, corners, marginObj]);
 
   const toTrimFrac = useCallback((cx: number, cy: number) => {
     const r = trimWrapRef.current!.getBoundingClientRect();
@@ -215,7 +218,9 @@ export function TrimBench({ onDone, edit }: { onDone: () => void; edit?: AdminTr
     if (!img || corners.length !== 4 || trim.length === 0) return;
     setBusy(true);
     const tc = rectify(img, corners as [Pt, Pt, Pt, Pt], 1200, marginObj);
-    const scale = Math.min(1, 1000 / tc.width);
+    // Sized so the marked opening keeps about 600px across it, whatever the
+    // photograph reveals around it.
+    const scale = Math.min(1, Math.min(1600, 600 * padW) / tc.width);
     const small = document.createElement('canvas');
     small.width = Math.round(tc.width * scale);
     small.height = Math.round(tc.height * scale);
@@ -338,9 +343,6 @@ export function TrimBench({ onDone, edit }: { onDone: () => void; edit?: AdminTr
               </Section>
 
               <Section title="Nalichnikni chizish">
-                <Label>Atrofni ochish — {(margin * 100).toFixed(0)}%</Label>
-                <input type="range" min={0.03} max={0.4} step={0.01} value={margin} onChange={(e) => setMargin(+e.target.value)} style={{ width: '100%' }} />
-
                 <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginTop: 10 }}>
                   {ROLE_ORDER.map((role) => {
                     const present = trim.some((t) => t.role === role);

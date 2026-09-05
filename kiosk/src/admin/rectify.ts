@@ -158,6 +158,70 @@ export function rectify(img: HTMLImageElement | HTMLCanvasElement, corners: [Pt,
 }
 
 /**
+ * The margins that bring the WHOLE photograph inside the rectified canvas.
+ *
+ * How much photo there is past the door is a property of the photograph, not
+ * a matter of taste, so it is measured rather than asked for: the same
+ * homography `rectify` solves is run BACKWARDS over the photo's own four
+ * corners to see where they land in the leaf's space. Whatever falls outside
+ * [0,OW]x[0,OH] is the reveal.
+ *
+ * Clamped, because the warp is only well behaved near the quad it was solved
+ * from and an extreme angle would otherwise ask for a canvas of any size.
+ * `rectify`'s own guards still leave anything it cannot reach transparent,
+ * and `encodeAlpha` keeps that transparent rather than black.
+ */
+export function photoMargin(img: HTMLImageElement | HTMLCanvasElement, corners: [Pt, Pt, Pt, Pt]): Margin {
+  const FALLBACK: Margin = { left: 0.15, right: 0.15, top: 0.15, bottom: 0.15 };
+  const [TL, TR, BR, BL] = corners;
+  const topW = Math.hypot(TR.x - TL.x, TR.y - TL.y);
+  const botW = Math.hypot(BR.x - BL.x, BR.y - BL.y);
+  const leftH = Math.hypot(BL.x - TL.x, BL.y - TL.y);
+  const rightH = Math.hypot(BR.x - TR.x, BR.y - TR.y);
+  const aspect = ((topW + botW) / 2) / ((leftH + rightH) / 2);
+  if (!isFinite(aspect) || aspect <= 0) return FALLBACK;
+
+  const OW = 1000;
+  const OH = OW / aspect;
+  const h = homography(corners, OW, OH);
+  const m = [h[0], h[1], h[2], h[3], h[4], h[5], h[6], h[7], 1];
+  const det =
+    m[0] * (m[4] * m[8] - m[5] * m[7]) -
+    m[1] * (m[3] * m[8] - m[5] * m[6]) +
+    m[2] * (m[3] * m[7] - m[4] * m[6]);
+  if (!isFinite(det) || Math.abs(det) < 1e-12) return FALLBACK;
+  const inv = [
+    (m[4] * m[8] - m[5] * m[7]) / det, (m[2] * m[7] - m[1] * m[8]) / det, (m[1] * m[5] - m[2] * m[4]) / det,
+    (m[5] * m[6] - m[3] * m[8]) / det, (m[0] * m[8] - m[2] * m[6]) / det, (m[2] * m[3] - m[0] * m[5]) / det,
+    (m[3] * m[7] - m[4] * m[6]) / det, (m[1] * m[6] - m[0] * m[7]) / det, (m[0] * m[4] - m[1] * m[3]) / det,
+  ];
+  const denom = (sx: number, sy: number) => inv[6] * sx + inv[7] * sy + inv[8];
+
+  // A photo corner whose projective denominator has flipped sign sits on the
+  // far side of the horizon for this warp — its mapped position is not a
+  // place, so it is skipped rather than allowed to set a margin.
+  const mid = denom((TL.x + TR.x + BR.x + BL.x) / 4, (TL.y + TR.y + BR.y + BL.y) / 4);
+  if (!isFinite(mid) || mid === 0) return FALLBACK;
+
+  const W = img.width, H = img.height;
+  let minX = 0, maxX = OW, minY = 0, maxY = OH;
+  for (const [sx, sy] of [[0, 0], [W, 0], [W, H], [0, H]] as [number, number][]) {
+    const d = denom(sx, sy);
+    if (!isFinite(d) || Math.sign(d) !== Math.sign(mid) || Math.abs(d) < 1e-9) continue;
+    const X = (inv[0] * sx + inv[1] * sy + inv[2]) / d;
+    const Y = (inv[3] * sx + inv[4] * sy + inv[5]) / d;
+    if (!isFinite(X) || !isFinite(Y)) continue;
+    if (X < minX) minX = X;
+    if (X > maxX) maxX = X;
+    if (Y < minY) minY = Y;
+    if (Y > maxY) maxY = Y;
+  }
+  const CAP = 1.5;
+  const at = (v: number) => Math.min(CAP, Math.max(0, +v.toFixed(4)));
+  return { left: at(-minX / OW), right: at((maxX - OW) / OW), top: at(-minY / OH), bottom: at((maxY - OH) / OH) };
+}
+
+/**
  * Encode a canvas that may carry transparency.
  *
  * `rectify` leaves margin pixels transparent wherever the photograph simply
@@ -296,6 +360,37 @@ export function stripHandle(canvas: HTMLCanvasElement, side: 'left' | 'right' | 
   ctx.putImageData(im, 0, 0);
 }
 
+/** The mean of a leaf's brightest tenth, per channel — what both
+ *  `neutraliseWhite` and `looksWhite` read the door's own white off. */
+function brightestTenth(canvas: HTMLCanvasElement): [number, number, number] {
+  const ctx = canvas.getContext('2d')!;
+  const W = canvas.width, H = canvas.height;
+  const d = ctx.getImageData(0, 0, W, H).data;
+  const px: [number, number, number, number][] = [];
+  for (let i = 0; i < W * H; i += 11) {
+    px.push([0.2126 * d[i * 4] + 0.7152 * d[i * 4 + 1] + 0.0722 * d[i * 4 + 2], d[i * 4], d[i * 4 + 1], d[i * 4 + 2]]);
+  }
+  px.sort((a, b) => b[0] - a[0]);
+  const take = px.slice(0, Math.max(20, Math.round(px.length * 0.1)));
+  return [1, 2, 3].map((c) => take.reduce((s, p) => s + (p[c] as number), 0) / take.length) as [number, number, number];
+}
+
+/**
+ * Whether this leaf is actually a WHITE door.
+ *
+ * `neutraliseWhite` bleaches anything it is pointed at — that is the job —
+ * so whether to run it must never be a default anyone can leave wrong: a
+ * grey door published with it on comes back near-white with its gold washed
+ * to pale yellow, and the photograph is gone for good. A white door's
+ * brightest tenth is both bright and near-neutral; a painted or wood one
+ * fails one of those, which is the whole test.
+ */
+export function looksWhite(canvas: HTMLCanvasElement): boolean {
+  const w = brightestTenth(canvas);
+  const lo = Math.min(...w), hi = Math.max(...w);
+  return lo > 200 && hi - lo < 18;
+}
+
 /**
  * Even a white leaf's colour to one shared white point, in place.
  *
@@ -308,13 +403,7 @@ export function neutraliseWhite(canvas: HTMLCanvasElement): void {
   const W = canvas.width, H = canvas.height;
   const im = ctx.getImageData(0, 0, W, H);
   const d = im.data;
-  const px: [number, number, number, number][] = [];
-  for (let i = 0; i < W * H; i += 11) {
-    px.push([0.2126 * d[i * 4] + 0.7152 * d[i * 4 + 1] + 0.0722 * d[i * 4 + 2], d[i * 4], d[i * 4 + 1], d[i * 4 + 2]]);
-  }
-  px.sort((a, b) => b[0] - a[0]);
-  const take = px.slice(0, Math.max(20, Math.round(px.length * 0.1)));
-  const white = [1, 2, 3].map((c) => take.reduce((s, p) => s + (p[c] as number), 0) / take.length);
+  const white = brightestTenth(canvas);
   const TARGET = 244;
   const gain = white.map((v) => TARGET / v);
   const shoulder = (v: number) => (v <= 219 ? v : 255 - 36 * Math.exp(-(v - 219) / 36));
