@@ -93,6 +93,7 @@ export function Admin() {
               placeholder="Nomi bo‘yicha qidirish…"
               style={{ ...searchInput, flex: 1 }}
             />
+            <DiagnosticsButton />
             <AdminPrimaryButton onClick={() => setAdding(true)} style={{ width: 'auto', whiteSpace: 'nowrap', padding: '0 20px' }}>
               + {TAB_ADD_LABEL[tab]}
             </AdminPrimaryButton>
@@ -220,6 +221,69 @@ function TrimCard({ trim, onEdit }: { trim: TrimModel; onEdit: () => void }) {
       <div style={{ ...TYPE.label, fontSize: 10, color: COLOR.inkSoft, marginTop: 6 }}>{pieceNote}</div>
       <DeleteRow onEdit={canReedit ? onEdit : undefined} onDelete={() => removeTrimModel(trim.id)} kind={overridden ? 'restore' : 'delete'} itemName={trim.name.uz} />
     </Card>
+  );
+}
+
+/**
+ * Copy everything about the catalogue's GEOMETRY to the clipboard — every
+ * trim design's margin, boxes and traced outlines, and every room's opening
+ * and measured casing.
+ *
+ * Photographs are deliberately left out: what goes wrong with a trim is
+ * almost always where its outline sits relative to the door, and that is a
+ * few hundred bytes of numbers rather than megabytes of image. It exists
+ * because "it does not show what I cut" cannot be diagnosed from a
+ * screenshot — the numbers say immediately whether a design has no usable
+ * boxes, or has them somewhere the door then covers.
+ */
+function DiagnosticsButton() {
+  const toast = useToast();
+  const copy = async () => {
+    const r3 = (v: number) => +v.toFixed(3);
+    const read = (k: string) => {
+      try { return JSON.parse(localStorage.getItem(k) ?? 'null'); } catch { return null; }
+    };
+    const benchTrims: AdminTrim[] = read('dc.trims.v1') ?? [];
+    const report = {
+      trims: mergeTrims(BASE_TRIMS).map((t) => {
+        const src = (benchTrims.find((x) => x.id === t.id) ?? (t as AdminTrim)).trimSource ?? '';
+        return {
+          id: t.id,
+          name: t.name.uz,
+          category: t.category,
+          margin: t.trimMargin,
+          source: src ? `${src.slice(5, src.indexOf(';'))} ${Math.round(src.length / 1024)}KB` : 'MISSING',
+          boxes: (t.trimBoxes ?? []).map((b) => ({
+            role: b.role, label: b.label,
+            x: r3(b.x), y: r3(b.y), w: r3(b.w), h: r3(b.h),
+            points: b.points?.map((p) => [r3(p.x), r3(p.y)]),
+            hole: b.holePoints?.length ?? 0,
+          })),
+        };
+      }),
+      rooms: mergeRooms(BASE_ROOMS).map((rm) => ({
+        id: rm.id, open: rm.open, trimBoxes: rm.trimBoxes?.map((b) => ({ x: r3(b.x), y: r3(b.y), w: r3(b.w), h: r3(b.h), role: b.role })),
+      })),
+      doors: mergeLeaves(BASE_LEAVES).map((l) => ({ id: l.id, name: l.name.uz, trimRoles: l.trimRoles ?? 'all' })),
+    };
+    // Unindented: this gets pasted into a chat, and the numbers are the
+    // point, not the layout.
+    const text = JSON.stringify(report);
+    try {
+      await navigator.clipboard.writeText(text);
+      toast('Nusxalandi — yopishtiring');
+    } catch {
+      // A clipboard the browser will not hand over (an insecure origin, a
+      // permission refused) still has to give the numbers up somehow.
+      const w = window.open('', '_blank');
+      if (w) { w.document.write('<pre>' + text.replace(/</g, '&lt;') + '</pre>'); toast('Yangi oynada ochildi'); }
+      else toast('Nusxalab bo‘lmadi');
+    }
+  };
+  return (
+    <AdminGhostButton onClick={copy} style={{ width: 'auto', whiteSpace: 'nowrap', padding: '0 14px' }}>
+      Tashxis
+    </AdminGhostButton>
   );
 }
 
