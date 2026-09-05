@@ -95,7 +95,7 @@ export function AdminGhostButton({ children, onClick, disabled, style }: { child
 
 /** A text-scaled link, but a real touch target underneath — a bare 13px
  *  line of text is what a mouse cursor forgives and a finger does not. */
-export const linkBtn: React.CSSProperties = { display: 'inline-flex', alignItems: 'center', minHeight: TOUCH_MIN, background: 'none', border: 'none', color: COLOR.inkSoft, cursor: 'pointer', fontSize: 13, padding: '0 4px', margin: '0 -4px', fontFamily: 'inherit' };
+const linkBtn: React.CSSProperties = { display: 'inline-flex', alignItems: 'center', minHeight: TOUCH_MIN, background: 'none', border: 'none', color: COLOR.inkSoft, cursor: 'pointer', fontSize: 13, padding: '0 4px', margin: '0 -4px', fontFamily: 'inherit' };
 
 export function Seg({ opts, value, onPick }: { opts: { id: string; label: string }[]; value: string; onPick: (v: string) => void }) {
   return (
@@ -211,7 +211,7 @@ export function DimHUD({ rect, w, h }: { rect: { x: number; y: number; w: number
  * card the containing block instead and squeezed the whole modal down into
  * its width. A portal puts it outside every such ancestor.
  */
-export function Modal({ children, onClose }: { children: ReactNode; onClose: () => void }) {
+function Modal({ children, onClose }: { children: ReactNode; onClose: () => void }) {
   return createPortal(
     <div
       onClick={onClose}

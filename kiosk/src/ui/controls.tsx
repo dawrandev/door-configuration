@@ -1,6 +1,5 @@
 import type { CSSProperties, ReactNode } from 'react';
 import { COLOR, FONT, RADIUS, RADIUS_SM, TYPE } from '../design/tokens';
-import { Ornament } from './Ornament';
 
 /**
  * The chrome. It recedes so the door carries the colour (SPEC §9): ink on
@@ -99,20 +98,6 @@ export function StepHeader({ kicker, title, step }: { kicker: string; title: str
         {kicker} <span style={{ color: COLOR.inkSoft }}>· {step}</span>
       </Eyebrow>
       <h2 style={{ ...TYPE.h1, margin: '10px 0 0', color: COLOR.ink }}>{title}</h2>
-    </div>
-  );
-}
-
-export function SelectedMark({ width = 44 }: { width?: number }) {
-  return <Ornament width={width} strokeWidth={3.4} />;
-}
-
-/** The wordmark — the ram's horn beside the workshop name. */
-export function Wordmark() {
-  return (
-    <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-      <Ornament width={40} strokeWidth={2.4} />
-      <div style={{ ...TYPE.label, fontSize: '0.7rem', color: COLOR.ink }}>Qoraqalpoq&nbsp;eshik</div>
     </div>
   );
 }

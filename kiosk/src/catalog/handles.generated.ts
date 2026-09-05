@@ -11,6 +11,4 @@ export const HANDLE_PLACE = { wFrac: 0.2300, hFrac: 0.0439, cx: 0.463, cy: 0.590
 
 export const HANDLES: Handle[] = [
   { id: 'black', name: { uz: 'Qora', kk: 'Qara', ru: 'Чёрный' }, image: '/assets/handles/black.png' },
-  { id: 'chrome', name: { uz: 'Xrom', kk: 'Xrom', ru: 'Хром' }, image: '/assets/handles/chrome.png' },
-  { id: 'brass', name: { uz: 'Guruch', kk: 'Guruch', ru: 'Латунь' }, image: '/assets/handles/brass.png' },
 ];

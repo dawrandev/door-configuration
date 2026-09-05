@@ -46,12 +46,3 @@ export function Ornament({
   );
 }
 
-/** The horn with a rule running out either side. Used to open a screen. */
-export function OrnamentRule({ width = 72 }: { width?: number }) {
-  return (
-    <div style={{ display: 'flex', alignItems: 'center', gap: u(22), marginTop: u(26) }}>
-      <Ornament width={width} />
-      <div style={{ flex: 1, height: 1, background: COLOR.line }} />
-    </div>
-  );
-}

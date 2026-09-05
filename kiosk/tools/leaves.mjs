@@ -832,10 +832,21 @@ async function writeHandles(list) {
    * that keeps the specular streaks reading as metal. Black barely moves; chrome
    * opens right up to a near-white sheen; brass warms as it brightens.
    */
+  /**
+   * Only black is emitted, because only black is reachable: WallStage picks
+   * `HANDLES.find(h => h.id === 'black')` and there is no handle axis for a
+   * customer to change it with. Chrome and brass were being generated and
+   * shipped for nobody.
+   *
+   * The recipes are kept here, commented, rather than deleted — they are the
+   * tuning this file's docblock describes and they are not recoverable by
+   * guessing. Uncomment two lines and re-run to have them back.
+   *
+   *   { id: 'chrome', name: { uz: 'Xrom', kk: 'Xrom', ru: 'Хром' }, floor: [96, 100, 110], hi: [246, 248, 252], gamma: 0.62 },
+   *   { id: 'brass', name: { uz: 'Guruch', kk: 'Guruch', ru: 'Латунь' }, floor: [96, 74, 38], hi: [232, 198, 128], gamma: 0.72 },
+   */
   const FINISHES = [
     { id: 'black', name: { uz: 'Qora', kk: 'Qara', ru: 'Чёрный' }, floor: [18, 18, 20], hi: [120, 122, 128], gamma: 0.9 },
-    { id: 'chrome', name: { uz: 'Xrom', kk: 'Xrom', ru: 'Хром' }, floor: [96, 100, 110], hi: [246, 248, 252], gamma: 0.62 },
-    { id: 'brass', name: { uz: 'Guruch', kk: 'Guruch', ru: 'Латунь' }, floor: [96, 74, 38], hi: [232, 198, 128], gamma: 0.72 },
   ];
   const srgbToLin = (v) => Math.pow(v / 255, 2.2);
 

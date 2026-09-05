@@ -14,10 +14,8 @@ import type { CSSProperties } from 'react';
  * only for a little responsive spacing; nothing about type flows through it.
  */
 
-export const CANVAS = { w: 1080, h: 1920 } as const;
-export const DESIGN_WIDTH = 1080;
-
-/** Legacy responsive spacing unit. Kept modest — type no longer rides on it. */
+/** Responsive spacing unit. The ornament still sizes through it; nothing
+ *  else does — type is a fixed rem scale and does not ride on it. */
 export function u(n: number): string {
   return `calc(${n} * var(--u, 1px))`;
 }
@@ -120,8 +118,3 @@ export const RADIUS = 8;
 export const RADIUS_SM = 5;
 
 export const TOUCH_MIN = 44;
-
-export const DURATION = {
-  finishFade: 240,
-  screenIn: 420,
-} as const;
