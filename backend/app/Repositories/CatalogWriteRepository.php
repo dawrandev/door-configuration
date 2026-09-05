@@ -9,6 +9,7 @@ use App\Models\TrimModel;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
+use RuntimeException;
 
 /**
  * Every write to the catalogue. The only place outside CatalogRepository where
@@ -28,28 +29,37 @@ class CatalogWriteRepository
     ];
 
     /**
-     * A fresh id in the shape the frontend has always minted: `a-` plus a
-     * base-36 timestamp (DoorBench.tsx:647).
+     * A fresh id: `a-`, a base-36 millisecond timestamp, and four random
+     * characters.
      *
-     * Server-side rather than client-supplied. A browser cannot know what ids
-     * exist, and a create carrying `id: "lattice"` would land on a shipped
-     * door. The loop is not paranoia about the clock — two publishes inside the
-     * same millisecond are perfectly reachable from an import.
+     * The frontend's version is the timestamp alone (DoorBench.tsx:647), and
+     * that is not enough here. Publishing a door mints ids for its nalichnik
+     * AND its korona before either row is inserted — so a database check cannot
+     * separate them, and two mints in the same millisecond return the SAME id.
+     * The two designs then share a primary key and a storage directory. It is
+     * rare, it is silent, and it corrupts data.
+     *
+     * The timestamp stays because it keeps ids roughly ordered and readable;
+     * the random tail is what actually makes them unique. The DB check remains
+     * as a backstop.
+     *
+     * Server-side rather than client-supplied: a browser cannot know what ids
+     * exist, and a create carrying `id: "lattice"` would land on a shipped door.
      *
      * @param  class-string<Model>  $model
      */
     public function mintId(string $model): string
     {
-        do {
-            $id = 'a-'.base_convert((string) (int) (microtime(true) * 1000), 10, 36);
-            if ($model::find($id) !== null) {
-                usleep(1000);
+        for ($attempt = 0; $attempt < 8; $attempt++) {
+            $id = 'a-'.base_convert((string) (int) (microtime(true) * 1000), 10, 36)
+                .Str::lower(Str::random(4));
 
-                continue;
+            if ($model::find($id) === null) {
+                return $id;
             }
+        }
 
-            return $id;
-        } while (true);
+        throw new RuntimeException('Could not mint a free id for '.$model);
     }
 
     /**
