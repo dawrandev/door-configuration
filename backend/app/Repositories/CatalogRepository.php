@@ -52,6 +52,37 @@ class CatalogRepository
         return DoorColor::query()->orderBy('position')->orderBy('created_at')->get();
     }
 
+    /** One item by id, hidden or not — the bench edits what the showroom cannot see. */
+    public function findLeaf(string $id): ?Leaf
+    {
+        return Leaf::with('colors:id')->find($id);
+    }
+
+    public function findRoom(string $id): ?Room
+    {
+        return Room::find($id);
+    }
+
+    public function findTrim(string $id): ?TrimModel
+    {
+        return TrimModel::find($id);
+    }
+
+    /**
+     * The designs a door traced from its own photograph, keyed by category.
+     *
+     * This replaces `findDoorTrim` (adminStore.ts:170-173), which rebuilt the id
+     * as `a-<leafId>-<category>` and looked it up as a string. A foreign key
+     * answers the same question without the convention — and without the
+     * failure mode where a renamed door can no longer find what it traced.
+     *
+     * @return \Illuminate\Support\Collection<string, TrimModel>
+     */
+    public function trimsOwnedBy(string $leafId): Collection
+    {
+        return TrimModel::where('owner_leaf_id', $leafId)->get()->keyBy('category');
+    }
+
     /**
      * A cheap token that changes whenever anything in the catalogue does.
      *

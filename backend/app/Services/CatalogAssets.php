@@ -38,8 +38,17 @@ class CatalogAssets
      *  would composite that onto black. */
     public const MIMES = ['image/jpeg', 'image/webp', 'image/png'];
 
-    /** Store an upload under a content-hashed name and return its relative path. */
-    public function store(UploadedFile $file, string $kind, string $id, string $slot): string
+    /**
+     * Store an upload under a content-hashed name.
+     *
+     * Returns whether the file was actually WRITTEN, which the publisher needs
+     * on failure: only a newly-written file may be cleaned up. A path that was
+     * already there means the bytes were already there, which means some other
+     * row references them — deleting it would break a live image.
+     *
+     * @return array{0: string, 1: bool} [relative path, was newly written]
+     */
+    public function store(UploadedFile $file, string $kind, string $id, string $slot): array
     {
         return $this->put($file->getRealPath(), $this->extensionOf($file), $kind, $id, $slot);
     }
@@ -51,7 +60,13 @@ class CatalogAssets
             return null;
         }
 
-        return $this->put($absolutePath, pathinfo($absolutePath, PATHINFO_EXTENSION), $kind, $id, $slot);
+        return $this->put($absolutePath, pathinfo($absolutePath, PATHINFO_EXTENSION), $kind, $id, $slot)[0];
+    }
+
+    /** Everything under one item's directory, for a hard delete. */
+    public function forgetDirectory(string $kind, string $id): void
+    {
+        Storage::disk('public')->deleteDirectory(sprintf('%s/%s/%s', self::ROOT, $kind, $id));
     }
 
     /**
@@ -76,21 +91,28 @@ class CatalogAssets
         return Storage::disk('public')->allFiles(self::ROOT);
     }
 
-    private function put(string $absolutePath, string $extension, string $kind, string $id, string $slot): string
+    /**
+     * @return array{0: string, 1: bool} [relative path, was newly written]
+     */
+    private function put(string $absolutePath, string $extension, string $kind, string $id, string $slot): array
     {
         $hash = substr(sha1_file($absolutePath), 0, 8);
         $relative = sprintf('%s/%s/%s/%s-%s.%s', self::ROOT, $kind, $id, $slot, $hash, $extension);
-        $target = Storage::disk('public')->path($relative);
+        $disk = Storage::disk('public');
 
-        // The name carries the hash, so a file that is already there is already
-        // the right bytes. Skipping the copy also means two doors that share a
-        // source photograph share one file.
-        if (! File::exists($target)) {
-            File::ensureDirectoryExists(dirname($target));
-            File::copy($absolutePath, $target);
+        // The disk is resolved per call, never captured in the constructor:
+        // Storage::fake() swaps the container binding, and a captured instance
+        // would keep writing into the real storage/app/public during tests.
+        if ($disk->exists($relative)) {
+            // The name carries the hash, so a file that is already there is
+            // already the right bytes. Two doors sharing a source photograph
+            // therefore share one file.
+            return [$relative, false];
         }
 
-        return $relative;
+        $disk->put($relative, File::get($absolutePath));
+
+        return [$relative, true];
     }
 
     /**

@@ -33,7 +33,15 @@ return [
         'local' => [
             'driver' => 'local',
             'root' => storage_path('app/private'),
-            'serve' => true,
+            /*
+             * Not served. With 'serve' => true Laravel registers
+             * GET /storage/{path} against THIS disk — which is app/private and
+             * has no visibility set, so ServeFile treats every request as
+             * needing a signature and answers 403. It is invisible today only
+             * because the public/storage symlink usually answers first.
+             * Nothing in this app reads or writes the private disk.
+             */
+            'serve' => false,
             'throw' => false,
             'report' => false,
         ],
@@ -54,6 +62,14 @@ return [
              * Relative keeps it same-origin by construction in both.
              */
             'url' => '/storage',
+            /*
+             * Serve /storage through PHP as a fallback. The public/storage
+             * symlink normally answers first and this never runs — but
+             * 'storage:link' fails on shared hosting with symlinks disabled,
+             * which is the single most likely first-deploy failure, and this
+             * turns it from a site with no images into a slower one.
+             */
+            'serve' => true,
             'visibility' => 'public',
             'throw' => false,
             'report' => false,

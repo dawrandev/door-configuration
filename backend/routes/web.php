@@ -1,5 +1,6 @@
 <?php
 
+use App\Http\Controllers\Api\Admin\LeafController;
 use App\Http\Controllers\Api\AuthController;
 use App\Http\Controllers\Api\CatalogController;
 use Illuminate\Support\Facades\Route;
@@ -31,4 +32,24 @@ Route::prefix('api')->group(function () {
     Route::post('auth/login', [AuthController::class, 'login'])->middleware('throttle:10,1');
     Route::post('auth/logout', [AuthController::class, 'logout']);
     Route::get('auth/me', [AuthController::class, 'me']);
+
+    /*
+     * The workshop bench.
+     *
+     * `can:bench` is trivially true today (one account, and it is the bench's),
+     * but every route reads it from the first commit so a second role later
+     * changes one Gate rather than a dozen route definitions.
+     *
+     * Ids are plain string segments, not route-model bindings: implicit binding
+     * would put a database query in this file, and Architecture.md §1 keeps
+     * Eloquent inside a repository. The pattern bounds what can reach the
+     * service.
+     */
+    Route::middleware(['auth', 'can:bench'])->prefix('admin')->group(function () {
+        // POST for the replace, not PUT: PHP does not populate $_FILES for PUT,
+        // and _method spoofing would make every upload depend on a hidden field
+        // that silently turns a re-cut into a create if it goes missing.
+        Route::post('leaves', [LeafController::class, 'store']);
+        Route::post('leaves/{id}', [LeafController::class, 'update'])->where('id', '[A-Za-z0-9._-]{1,64}');
+    });
 });
