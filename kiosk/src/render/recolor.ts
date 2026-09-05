@@ -76,11 +76,25 @@ interface Passes {
 function derivePasses(rgb: Uint8ClampedArray, w: number, h: number, specGain = 0.55): Passes {
   const n = w * h;
   const L = new Float32Array(n);
+  const A = new Float32Array(n);
+  const LA = new Float32Array(n);
   for (let i = 0; i < n; i++) {
     L[i] = (LUMA[0] * rgb[i * 4] + LUMA[1] * rgb[i * 4 + 1] + LUMA[2] * rgb[i * 4 + 2]) / 255;
+    A[i] = rgb[i * 4 + 3] / 255;
+    LA[i] = L[i] * A[i];
   }
   const s = Math.max(6, Math.round(w * 0.055));
-  const lighting = blurPlane(L, w, h, s);
+  // Alpha-WEIGHTED, so empty space contributes nothing to the estimate rather
+  // than contributing black. A trim crop's margin can reach past the edge of
+  // the photograph (see `rectify`), and blurring straight over those zeros
+  // dragged the local lighting down, which crushed AO and pushed BASE up —
+  // the casing came out muddy for no reason on its own surface. A side casing
+  // is thin and sits at the photo's edge, so it met this far harder than a
+  // crown band does. Fully opaque sources divide by 1 and are untouched.
+  const blurLA = blurPlane(LA, w, h, s);
+  const blurA = blurPlane(A, w, h, s);
+  const lighting = new Float32Array(n);
+  for (let i = 0; i < n; i++) lighting[i] = blurLA[i] / Math.max(1e-3, blurA[i]);
 
   const BASE = new Float32Array(n);
   for (let i = 0; i < n; i++) BASE[i] = Math.min(1.35, L[i] / Math.max(0.02, lighting[i]));
@@ -290,6 +304,42 @@ function addLoop(path: Path2D, pts: { x: number; y: number }[], w: number, h: nu
  * punch: it renders BEHIND the door's own leaf image, which already covers
  * whatever trim falls under it.
  */
+/**
+ * Split the pieces into groups whose boxes actually touch.
+ *
+ * Lighting is derived per GROUP, not once for the whole entry. A nalichnik is
+ * two casings at opposite edges of the photo with the entire door between
+ * them: one crop spanning both is mostly door leaf, so the p98 that AO
+ * normalises against gets set by the leaf's bright face, and the blur that
+ * BASE divides by — sized off the crop's WIDTH — reaches far wider than a
+ * side casing is, smearing leaf and wall straight through it. That is why a
+ * korona, a single thick band whose crop is all korona, came out right while
+ * the casings beside it came out muddy.
+ *
+ * Pieces that DO touch still share one derivation, which is what the shared
+ * crop was for: a plinth foot against the shaft it sits under, or a room's
+ * crown against its ring, must not disagree right where they meet.
+ */
+function groupTouching(boxes: TrimPiece[]): TrimPiece[][] {
+  const parent = boxes.map((_, i) => i);
+  const find = (i: number): number => (parent[i] === i ? i : (parent[i] = find(parent[i])));
+  const touches = (a: TrimPiece, b: TrimPiece) =>
+    a.x <= b.x + b.w && b.x <= a.x + a.w && a.y <= b.y + b.h && b.y <= a.y + a.h;
+  for (let i = 0; i < boxes.length; i++) {
+    for (let j = i + 1; j < boxes.length; j++) {
+      if (touches(boxes[i], boxes[j])) parent[find(i)] = find(j);
+    }
+  }
+  const groups = new Map<number, TrimPiece[]>();
+  boxes.forEach((b, i) => {
+    const root = find(i);
+    const g = groups.get(root);
+    if (g) g.push(b);
+    else groups.set(root, [b]);
+  });
+  return [...groups.values()];
+}
+
 function recolorTrimFrom(
   id: string,
   source: string,
@@ -309,55 +359,57 @@ function recolorTrimFrom(
     const img = await loadImage(source);
     const { canvas, w, h } = drawAt(img, CASING_W);
 
-    const ux0 = Math.min(...boxes.map((b) => b.x));
-    const uy0 = Math.min(...boxes.map((b) => b.y));
-    const ux1 = Math.max(...boxes.map((b) => b.x + b.w));
-    const uy1 = Math.max(...boxes.map((b) => b.y + b.h));
-    const cx = Math.round(ux0 * w);
-    const cy = Math.round(uy0 * h);
-    const cw = Math.max(2, Math.round((ux1 - ux0) * w));
-    const ch = Math.max(2, Math.round((uy1 - uy0) * h));
-
-    const crop = document.createElement('canvas');
-    crop.width = cw;
-    crop.height = ch;
-    const cctx = crop.getContext('2d', { willReadFrequently: true })!;
-    cctx.drawImage(canvas, cx, cy, cw, ch, 0, 0, cw, ch);
-    const src = cctx.getImageData(0, 0, cw, ch);
-    // Null tint — the white 'oq' finish — means "as photographed", the same
-    // deal `recolorLeaf`'s caller strikes when it hands back `leaf.image`
-    // untouched. The crop still has to be MASKED to the traced outline, or
-    // the whole rectangular photo would land on the stage; it just isn't
-    // repainted. Without this the entire layer used to resolve to null and
-    // a picked nalichnik or korona simply never appeared.
-    const tinted = tint ? compositeToCanvas(derivePasses(src.data, cw, ch), tint, src) : crop;
-
     const out = document.createElement('canvas');
     out.width = w;
     out.height = h;
     const octx = out.getContext('2d')!;
 
-    // Union the boxes with the default (nonzero) fill rule, not evenodd:
-    // a plinth foot commonly overlaps the shaft box it sits under (both cover
-    // its top few pixels), and evenodd would read that overlap as crossed
-    // twice and leave it unpainted — the opposite of what two boxes covering
-    // the same trim should do.
-    const path = new Path2D();
-    for (const b of boxes) {
-      const outer: { x: number; y: number }[] =
-        b.points && b.points.length >= 3
-          ? b.points
-          : [{ x: b.x, y: b.y }, { x: b.x + b.w, y: b.y }, { x: b.x + b.w, y: b.y + b.h }, { x: b.x, y: b.y + b.h }];
-      addLoop(path, outer, w, h);
-      // A hand-traced inner edge, wound opposite the outer loop regardless
-      // of which direction it was actually clicked in (see windLike below) —
-      // nonzero fill then reads it as a hole rather than doubling the paint.
-      if (b.holePoints && b.holePoints.length >= 3) addLoop(path, windLike(b.holePoints, -signedArea(outer)), w, h);
+    for (const group of groupTouching(boxes)) {
+      const ux0 = Math.min(...group.map((b) => b.x));
+      const uy0 = Math.min(...group.map((b) => b.y));
+      const ux1 = Math.max(...group.map((b) => b.x + b.w));
+      const uy1 = Math.max(...group.map((b) => b.y + b.h));
+      const cx = Math.round(ux0 * w);
+      const cy = Math.round(uy0 * h);
+      const cw = Math.max(2, Math.round((ux1 - ux0) * w));
+      const ch = Math.max(2, Math.round((uy1 - uy0) * h));
+
+      const crop = document.createElement('canvas');
+      crop.width = cw;
+      crop.height = ch;
+      const cctx = crop.getContext('2d', { willReadFrequently: true })!;
+      cctx.drawImage(canvas, cx, cy, cw, ch, 0, 0, cw, ch);
+      const src = cctx.getImageData(0, 0, cw, ch);
+      // Null tint — the white 'oq' finish — means "as photographed", the same
+      // deal `recolorLeaf`'s caller strikes when it hands back `leaf.image`
+      // untouched. The crop still has to be MASKED to the traced outline, or
+      // the whole rectangular photo would land on the stage; it just isn't
+      // repainted. Without this the entire layer used to resolve to null and
+      // a picked nalichnik or korona simply never appeared.
+      const tinted = tint ? compositeToCanvas(derivePasses(src.data, cw, ch), tint, src) : crop;
+
+      // Union this group's boxes with the default (nonzero) fill rule, not
+      // evenodd: a plinth foot commonly overlaps the shaft box it sits under
+      // (both cover its top few pixels), and evenodd would read that overlap
+      // as crossed twice and leave it unpainted — the opposite of what two
+      // boxes covering the same trim should do.
+      const path = new Path2D();
+      for (const b of group) {
+        const outer: { x: number; y: number }[] =
+          b.points && b.points.length >= 3
+            ? b.points
+            : [{ x: b.x, y: b.y }, { x: b.x + b.w, y: b.y }, { x: b.x + b.w, y: b.y + b.h }, { x: b.x, y: b.y + b.h }];
+        addLoop(path, outer, w, h);
+        // A hand-traced inner edge, wound opposite the outer loop regardless
+        // of which direction it was actually clicked in (see windLike below) —
+        // nonzero fill then reads it as a hole rather than doubling the paint.
+        if (b.holePoints && b.holePoints.length >= 3) addLoop(path, windLike(b.holePoints, -signedArea(outer)), w, h);
+      }
+      octx.save();
+      octx.clip(path);
+      octx.drawImage(tinted, cx, cy);
+      octx.restore();
     }
-    octx.save();
-    octx.clip(path);
-    octx.drawImage(tinted, cx, cy);
-    octx.restore();
 
     if (punch) {
       // A separate erase, not folded into the union above, so it comes out
