@@ -2,7 +2,7 @@ import type { CSSProperties, ReactNode } from 'react';
 import { COLOR, FONT, RADIUS, RADIUS_SM, TYPE } from '../design/tokens';
 
 /**
- * The chrome. It recedes so the door carries the colour (SPEC §9): ink on
+ * The chrome. It recedes so the door carries the colour: ink on
  * limestone, one brass accent, and the accent only ever marks a choice. Sizes
  * are a fixed web scale now — refined, not scaled off a kiosk canvas.
  */

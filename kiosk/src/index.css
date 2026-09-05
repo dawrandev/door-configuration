@@ -1,5 +1,5 @@
 /*
- * Kiosk hardening — SPEC §8. There must be no way out of the app: no selection,
+ * Kiosk hardening. There must be no way out of the app: no selection,
  * no context menu, no pinch-zoom, no pull-to-refresh, no overscroll glow. A
  * customer who finds the browser behind the app is a customer we have lost, and
  * a salesperson who has to fix it is a salesperson not selling.
@@ -19,7 +19,7 @@ body,
   background: #f1eee7;
 }
 /*
- * The kiosk locks scrolling (SPEC §8); the responsive web build lets the page
+ * The kiosk locks scrolling; the responsive web build lets the page
  * scroll on a short screen. `.kiosk-locked` on <html> is set by the app when it
  * runs fullscreen on the showroom panel — see the kiosk runtime — and leaves the
  * web/mobile build free to scroll naturally.
@@ -188,7 +188,7 @@ button {
 }
 
 /*
- * The production sheet (SPEC §2). It sits off-screen during use and takes over
+ * The production sheet. It sits off-screen during use and takes over
  * the page only when the browser prints. Kept out of the on-screen world on
  * purpose — this is ink on paper for the shop floor, not the showroom's chrome.
  */

@@ -3,7 +3,7 @@ import { COLOR, u } from '../design/tokens';
 /**
  * Qo'shqor muyiz — the ram's horn.
  *
- * The one signature element (SPEC §9). It is the oldest motif in Karakalpak
+ * The one signature element. It is the oldest motif in Karakalpak
  * ornament, it is what our carvers already cut into the doors, and it earns its
  * place by being *ours* rather than by being decoration. It appears only where
  * something is chosen or divided — never as filler — because a mark that shows

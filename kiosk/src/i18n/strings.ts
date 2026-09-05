@@ -1,5 +1,5 @@
 /**
- * Karakalpak / Uzbek / Russian. SPEC §8: not an afterthought — our customers
+ * Karakalpak / Uzbek / Russian. Not an afterthought — our customers
  * are not one language group. Translations carried over from the approved design.
  */
 

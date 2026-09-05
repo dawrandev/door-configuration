@@ -67,12 +67,18 @@ Fotorealizm 100% bizning kodga bog'liq emas. U **manba fotolarga** bog'liq:
 - [ ] Laravel + MySQL backend (katalog, narx, lead).
 - [ ] Kiosk hardening (offline, idle, boot).
 
-## 5. Stack (o'zgarmaydi)
+## 5. Stack
 
-- Frontend: TypeScript + Vite + React + PixiJS v8 + Zustand + Motion + Tailwind (SPEC §12).
-- Render: 2D foto-kompozit + bitta fragment shader (tint) — SPEC §5.
-- Backend (keyin): Laravel 11 + MySQL (SPEC dan chetlashish, CTO qarori).
-- Admin extraction: hozir brauzer canvas; keyin Laravel + Intervention/Node.
+- Frontend: TypeScript + Vite + React + Zustand.
+- Render: 2D foto-kompozit, **canvas'da** (`kiosk/src/render/recolor.ts`).
+- Backend (keyin): Laravel 12 + MySQL.
+- Admin extraction: hozir brauzer canvas; keyin Laravel.
+
+> **Yangilandi.** Bu ro'yxatda avval PixiJS v8, Motion va Tailwind ham bor edi.
+> Uchalasi ham hech qachon ishlatilmagan: shader yondashuvi tashlab yuborilib,
+> uning o'rniga `recolor.ts` canvas'da Float32 arifmetikasi bilan ishlaydi
+> (`base`/`ao`/`spec` ajratish), animatsiyalar sof CSS'da, stillar esa inline.
+> Paketlar 2026-09-05 da o'chirildi.
 
 ## 6. Nima "professional" demak — qabul mezoni
 

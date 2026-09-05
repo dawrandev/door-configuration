@@ -5,7 +5,7 @@ import { enterFullscreen } from '../kioskMode';
 import { Ornament } from '../ui/Ornament';
 
 /**
- * The attract screen: earn a walk-up (SPEC §8) and set the register — an atelier
+ * The attract screen: earn a walk-up and set the register — an atelier
  * that makes doors, stated in the customer's language. One serif line does the
  * talking; the ram's horn is the only ornament; everything else stays quiet.
  */
