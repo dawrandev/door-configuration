@@ -6,6 +6,7 @@ use App\Models\DoorColor;
 use App\Models\Leaf;
 use App\Models\Room;
 use App\Models\TrimModel;
+use App\Services\CatalogAssets;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Seeder;
 use Illuminate\Support\Facades\DB;
@@ -37,17 +38,19 @@ use Illuminate\Support\Facades\File;
 class CatalogSeeder extends Seeder
 {
     /** Where the offline pipelines write. Read-only from here. */
-    private string $assets;
+    private string $pipeline;
 
     /** Set by catalog:reset-to-factory. Never true during an ordinary seed. */
     public bool $factoryReset = false;
 
+    public function __construct(private readonly CatalogAssets $assets) {}
+
     public function run(): void
     {
-        $this->assets = base_path('../kiosk/public');
+        $this->pipeline = base_path('../kiosk/public');
 
-        if (! File::isDirectory($this->assets)) {
-            $this->command?->error("kiosk/public not found at {$this->assets}");
+        if (! File::isDirectory($this->pipeline)) {
+            $this->command?->error("kiosk/public not found at {$this->pipeline}");
 
             return;
         }
@@ -74,13 +77,10 @@ class CatalogSeeder extends Seeder
     }
 
     /**
-     * Copy one pipeline asset into storage under a content-hashed name, and
-     * return the path to record.
+     * Copy one pipeline asset into storage and return the path to record.
      *
-     * The hash is not decoration. recolor.ts keys its render cache on the source
-     * string, so a filename that stayed the same across a re-cut would serve the
-     * door its predecessor's recolour for the life of the page. It is also what
-     * makes `Cache-Control: immutable` safe on /storage/catalog.
+     * Delegates the naming to CatalogAssets so the seeder and the publish
+     * endpoints cannot drift apart on how a file is hashed or where it lands.
      *
      * @param  string  $src  a path as the frontend writes it, e.g. /assets/leaves/lattice.webp
      */
@@ -90,26 +90,13 @@ class CatalogSeeder extends Seeder
             return null;
         }
 
-        $from = $this->assets.$src;
-        if (! File::exists($from)) {
+        $path = $this->assets->copy($this->pipeline.$src, $kind, $id, $slot);
+
+        if ($path === null) {
             $this->command?->warn("missing asset: {$src}");
-
-            return null;
         }
 
-        $ext = pathinfo($from, PATHINFO_EXTENSION);
-        $hash = substr(sha1_file($from), 0, 8);
-        $rel = "catalog/{$kind}/{$id}/{$slot}-{$hash}.{$ext}";
-        $to = storage_path("app/public/{$rel}");
-
-        File::ensureDirectoryExists(dirname($to));
-        // Skip the copy when the bytes are already there — the name carries the
-        // hash, so a matching name is a matching file.
-        if (! File::exists($to)) {
-            File::copy($from, $to);
-        }
-
-        return $rel;
+        return $path;
     }
 
     private function seedColors(): void

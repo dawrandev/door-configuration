@@ -30,7 +30,7 @@ class LeafResource extends JsonResource
                 'kk' => $this->name_kk,
                 'ru' => $this->name_ru,
             ],
-            'image' => Storage::url($this->image_path),
+            'image' => Storage::disk('public')->url($this->image_path),
             'aspect' => (float) $this->aspect,
             'handleSide' => $this->handle_side,
             'handleSwappable' => (bool) $this->handle_swappable,

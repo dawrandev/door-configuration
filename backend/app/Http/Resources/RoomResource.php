@@ -19,11 +19,11 @@ class RoomResource extends JsonResource
                 'ru' => $this->name_ru,
             ],
             // The stage image: doorway replaced by an unlit recess.
-            'image' => Storage::url($this->image_path),
+            'image' => Storage::disk('public')->url($this->image_path),
             // The untouched photo. The chooser shows it, and the trim's lighting
             // is derived from it — cropping the recess into that estimate is
             // what washed the casing out.
-            'thumb' => $this->whenNotNull($this->thumb_path ? Storage::url($this->thumb_path) : null),
+            'thumb' => $this->whenNotNull($this->thumb_path ? Storage::disk('public')->url($this->thumb_path) : null),
             'aspect' => (float) $this->aspect,
             'open' => $this->open,
             'trimBoxes' => $this->whenNotNull($this->trim_boxes),

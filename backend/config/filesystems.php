@@ -41,7 +41,19 @@ return [
         'public' => [
             'driver' => 'local',
             'root' => storage_path('app/public'),
-            'url' => rtrim(env('APP_URL', 'http://localhost'), '/').'/storage',
+            /*
+             * A RELATIVE url, deliberately — not APP_URL.'/storage'.
+             *
+             * recolor.ts draws every door into a canvas and reads it back with
+             * getImageData (7 call sites across rectify.ts, roomProcess.ts and
+             * recolor.ts), and none of them sets crossOrigin. An absolute URL
+             * is same-origin in production but CROSS-origin in development,
+             * where the SPA runs on :5173 and this app on :8000 — which taints
+             * the canvas and makes every one of those reads throw.
+             *
+             * Relative keeps it same-origin by construction in both.
+             */
+            'url' => '/storage',
             'visibility' => 'public',
             'throw' => false,
             'report' => false,

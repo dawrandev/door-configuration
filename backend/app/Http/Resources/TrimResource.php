@@ -21,7 +21,7 @@ class TrimResource extends JsonResource
             'category' => $this->category,
             'trimMargin' => $this->trim_margin,
             'trimBoxes' => $this->trim_boxes,
-            'trimSource' => Storage::url($this->trim_source_path),
+            'trimSource' => Storage::disk('public')->url($this->trim_source_path),
         ];
     }
 }
