@@ -35,6 +35,25 @@ type Tab = 'doors' | 'rooms' | 'trims';
 const TAB_LABEL: Record<Tab, string> = { doors: 'Eshiklar', rooms: 'Xonalar', trims: 'Nalichniklar' };
 const TAB_ADD_LABEL: Record<Tab, string> = { doors: 'Yangi eshik', rooms: 'Yangi xona', trims: 'Yangi nalichnik' };
 
+/**
+ * Everything the list screen needs about the catalogue, read in one pass.
+ *
+ * Module scope, not a hook, so the initial state can be seeded with it lazily
+ * (`useState(readCatalog)`) and the same code path serves both the first render
+ * and every later refresh.
+ */
+function readCatalog() {
+  const leaves = mergeLeaves(BASE_LEAVES);
+  const rooms = mergeRooms(BASE_ROOMS);
+  const trims = mergeTrims(BASE_TRIMS);
+  return {
+    leaves, rooms, trims,
+    overriddenLeaves: new Set(leaves.filter((l) => isOverridden(l.id)).map((l) => l.id)),
+    overriddenRooms: new Set(rooms.filter((r) => isRoomOverridden(r.id)).map((r) => r.id)),
+    overriddenTrims: new Set(trims.filter((t) => isTrimOverridden(t.id)).map((t) => t.id)),
+  };
+}
+
 export function Admin() {
   const [tab, setTab] = useState<Tab>('doors');
   const [adding, setAdding] = useState(false);
@@ -42,9 +61,23 @@ export function Admin() {
   const [editRoomItem, setEditRoomItem] = useState<AdminRoom | null>(null);
   const [editTrimItem, setEditTrimItem] = useState<AdminTrim | null>(null);
   const [query, setQuery] = useState('');
-  const [, force] = useState(0);
+  /**
+   * The whole catalogue, resolved ONCE per change rather than once per render.
+   *
+   * `readCatalog` parses three stores out of localStorage — records that carry
+   * base64 photographs — and it used to run in the render body, so every
+   * keystroke in the search box below re-parsed all of it. The `overridden`
+   * sets are folded in for the same reason: each card used to ask the store
+   * that question for itself, which meant another full parse per built-in card
+   * per render.
+   *
+   * Held in state and recomputed on the change event rather than memoised on a
+   * counter — a counter would be a dependency the memo never reads, which is a
+   * lie to anyone reading it and to the linter both.
+   */
+  const [catalog, setCatalog] = useState(readCatalog);
   useEffect(() => {
-    const r = () => force((n) => n + 1);
+    const r = () => setCatalog(readCatalog());
     window.addEventListener('dc-catalog-changed', r);
     return () => window.removeEventListener('dc-catalog-changed', r);
   }, []);
@@ -57,9 +90,7 @@ export function Admin() {
   if (adding && tab === 'rooms') return <Shell onDone={closeBench}><RoomBench onDone={closeBench} /></Shell>;
   if (adding && tab === 'trims') return <Shell onDone={closeBench}><TrimBench onDone={closeBench} /></Shell>;
 
-  const leaves = mergeLeaves(BASE_LEAVES);
-  const rooms = mergeRooms(BASE_ROOMS);
-  const trims = mergeTrims(BASE_TRIMS);
+  const { leaves, rooms, trims, overriddenLeaves, overriddenRooms, overriddenTrims } = catalog;
 
   const q = query.trim().toLowerCase();
   const shownLeaves = q ? leaves.filter((l) => l.name.uz.toLowerCase().includes(q)) : leaves;
@@ -113,7 +144,7 @@ export function Admin() {
             <EmptyState label={q ? 'Shu nomda eshik topilmadi' : 'Hozircha eshiklar yo‘q — yuqoridagi tugma bilan qo‘shing'} />
           ) : (
             <Grid>
-              {shownLeaves.map((l) => <DoorCard key={l.id} leaf={l} onEdit={() => setEditLeafItem(l as AdminLeaf)} />)}
+              {shownLeaves.map((l) => <DoorCard key={l.id} leaf={l} overridden={overriddenLeaves.has(l.id)} onEdit={() => setEditLeafItem(l as AdminLeaf)} />)}
             </Grid>
           )
         ) : tab === 'rooms' ? (
@@ -121,14 +152,14 @@ export function Admin() {
             <EmptyState label={q ? 'Shu nomda xona topilmadi' : 'Hozircha xonalar yo‘q — yuqoridagi tugma bilan qo‘shing'} />
           ) : (
             <Grid>
-              {shownRooms.map((r) => <RoomCard key={r.id} room={r} onEdit={() => setEditRoomItem(r as AdminRoom)} />)}
+              {shownRooms.map((r) => <RoomCard key={r.id} room={r} overridden={overriddenRooms.has(r.id)} onEdit={() => setEditRoomItem(r as AdminRoom)} />)}
             </Grid>
           )
         ) : shownTrims.length === 0 ? (
           <EmptyState label={q ? 'Shu nomda nalichnik topilmadi' : 'Hozircha nalichnik dizaynlari yo‘q — yuqoridagi tugma bilan qo‘shing'} />
         ) : (
           <Grid>
-            {shownTrims.map((t) => <TrimCard key={t.id} trim={t} onEdit={() => setEditTrimItem(t as AdminTrim)} />)}
+            {shownTrims.map((t) => <TrimCard key={t.id} trim={t} overridden={overriddenTrims.has(t.id)} onEdit={() => setEditTrimItem(t as AdminTrim)} />)}
           </Grid>
         )}
       </div>
@@ -164,10 +195,9 @@ function Stats({ doorCount, roomCount, trimCount, recentName }: { doorCount: num
   );
 }
 
-function DoorCard({ leaf, onEdit }: { leaf: Leaf; onEdit: () => void }) {
+function DoorCard({ leaf, overridden, onEdit }: { leaf: Leaf; overridden: boolean; onEdit: () => void }) {
   const [name, setName] = useState(leaf.name.uz);
   const builtIn = isBuiltIn(leaf.id);
-  const overridden = isOverridden(leaf.id);
   // Every door can be re-cut now: a bench door reloads its data URL, a built-in
   // its bundled source — so the first four are as editable as the rest.
   const canReedit = !!leaf.source || !builtIn;
@@ -185,10 +215,9 @@ function DoorCard({ leaf, onEdit }: { leaf: Leaf; onEdit: () => void }) {
   );
 }
 
-function RoomCard({ room, onEdit }: { room: Room; onEdit: () => void }) {
+function RoomCard({ room, overridden, onEdit }: { room: Room; overridden: boolean; onEdit: () => void }) {
   const [name, setName] = useState(room.name.uz);
   const builtIn = isBuiltIn(room.id);
-  const overridden = isRoomOverridden(room.id);
   const canReedit = !!(room as AdminRoom).source || !builtIn;
   const trimCount = room.trimBoxes?.length ?? 0;
   const trimNote = trimCount === 0 ? 'Nalichniksiz' : `${trimCount} ta nalichnik qismi`;
@@ -204,10 +233,9 @@ function RoomCard({ room, onEdit }: { room: Room; onEdit: () => void }) {
   );
 }
 
-function TrimCard({ trim, onEdit }: { trim: TrimModel; onEdit: () => void }) {
+function TrimCard({ trim, overridden, onEdit }: { trim: TrimModel; overridden: boolean; onEdit: () => void }) {
   const [name, setName] = useState(trim.name.uz);
   const builtIn = isBuiltIn(trim.id);
-  const overridden = isTrimOverridden(trim.id);
   const canReedit = !!(trim as AdminTrim).source || !builtIn;
   const categoryLabel = trim.category === 'nalichnik' ? 'Nalichnik' : 'Korona';
   const pieceNote = `${categoryLabel} · ${trim.trimBoxes.length} ta qism`;
