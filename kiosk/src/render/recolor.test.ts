@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { derivePasses, groupTouching, signedArea, windLike } from './recolor';
+import { derivePasses, groupTouching, signedArea, sourceKey, windLike } from './recolor';
 import type { TrimPiece } from '../catalog/types';
 
 /**
@@ -242,5 +242,50 @@ describe('signedArea / windLike', () => {
     expect(out).not.toBe(square);
     expect(out).toEqual(reversed);
     expect(Math.sign(signedArea(out))).toBe(-1);
+  });
+});
+
+describe('sourceKey', () => {
+  /*
+   * The regression this exists for: sources used to be base64 data URLs, whose
+   * LENGTH moved with their content, so the cache keyed on length. They are
+   * now URLs carrying a content hash, and every one of those is exactly as
+   * long as the next — so a re-cut door kept serving its old recoloured pixels
+   * for the life of the page. docs/manual-test.md calls this out by name.
+   */
+  it('tells apart two content-hash urls of identical length', () => {
+    const a = '/storage/catalog/leaves/lattice/image-307e06a9.webp';
+    const b = '/storage/catalog/leaves/lattice/image-abd6e34e.webp';
+    expect(a.length).toBe(b.length);
+    expect(sourceKey(a)).not.toBe(sourceKey(b));
+  });
+
+  it('keeps a url intact, since a url is short', () => {
+    const url = '/storage/catalog/trims/a-m1k2j3/trim-9f3ab21c.webp';
+    expect(sourceKey(url)).toBe(url);
+  });
+
+  it('does not carry a whole data url into the key', () => {
+    const big = 'data:image/jpeg;base64,' + 'A'.repeat(200_000);
+    expect(sourceKey(big).length).toBeLessThan(400);
+  });
+
+  it('separates two data urls of different length', () => {
+    const head = 'data:image/jpeg;base64,' + 'A'.repeat(600);
+    const tail = 'B'.repeat(600);
+    expect(sourceKey(head + 'X' + tail)).not.toBe(sourceKey(head + 'YZ' + tail));
+  });
+
+  /*
+   * The known limit, stated rather than hidden: two data urls of the SAME
+   * length differing only in their middle collide. That is the trade for not
+   * hashing a megabyte on every drag frame of a bench preview, and it is safe
+   * where it applies — a preview's boxes are part of the key too, and a
+   * published source is a url, which is compared whole.
+   */
+  it('collides on same-length data urls that differ only in the middle', () => {
+    const head = 'data:image/jpeg;base64,' + 'A'.repeat(600);
+    const tail = 'B'.repeat(600);
+    expect(sourceKey(head + 'X' + tail)).toBe(sourceKey(head + 'Y' + tail));
   });
 });

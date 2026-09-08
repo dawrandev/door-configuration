@@ -216,9 +216,10 @@ function drawAt(img: HTMLImageElement, workW: number): { canvas: HTMLCanvasEleme
 }
 
 /**
- * Results are cached by part + colour + source length (the length catches a
- * bench override republished under the same id). A recolour costs one derive
- * (~100ms) and one composite (~50ms) the first time; every later look is free.
+ * Results are cached by part + colour + which source picture it was (see
+ * `sourceKey` — a re-cut published under the same id must not keep serving
+ * the old pixels). A recolour costs one derive (~100ms) and one composite
+ * (~50ms) the first time; every later look is free.
  *
  * Capped, LRU-ish (a Map iterates in insertion order, so re-inserting a key
  * on every hit keeps it "recent" and the oldest untouched entry is always
@@ -230,6 +231,25 @@ function drawAt(img: HTMLImageElement, workW: number): { canvas: HTMLCanvasEleme
  * every intermediate position's rendered PNG in memory for the rest of the
  * page's life, on the same cache the customer-facing stage shares.
  */
+/**
+ * What identifies a source picture in a cache key.
+ *
+ * This used to be `source.length`, which worked only because a source was a
+ * base64 data URL whose length moved with its content. Sources are now URLs
+ * carrying a content hash — `image-307e06a9.webp` — and every one of those is
+ * exactly as long as the next, so re-cutting a door would have kept serving
+ * its OLD recoloured pixels for the life of the page. The whole URL is the
+ * answer, and URLs are short.
+ *
+ * A data URL still reaches here from the benches' live previews, where the
+ * whole string would be megabytes of cache key rebuilt on every drag frame —
+ * so those keep the length, now with a sample from each end to go with it.
+ */
+export function sourceKey(source: string): string {
+  if (source.length < 512) return source;
+  return `${source.length}:${source.slice(0, 96)}:${source.slice(-96)}`;
+}
+
 const CACHE_MAX = 60;
 const cache = new Map<string, Promise<string | null>>();
 /** @internal — exported for tests, not part of the module's API. */
@@ -251,7 +271,7 @@ export function cached(key: string, make: () => Promise<string | null>): Promise
 
 /** A leaf recoloured to the tint, hardware and ornaments kept original. */
 export function recolorLeaf(leaf: Leaf, tint: Tint): Promise<string | null> {
-  return cached(`leaf|${leaf.id}|${tint.join(',')}|${leaf.image.length}`, async () => {
+  return cached(`leaf|${leaf.id}|${tint.join(',')}|${sourceKey(leaf.image)}`, async () => {
     const img = await loadImage(leaf.image);
     const { ctx, w, h } = drawAt(img, WORK_W);
     const src = ctx.getImageData(0, 0, w, h);
@@ -383,7 +403,7 @@ function recolorTrimFrom(
   // A null tint is "as photographed" — a distinct cache entry from any real
   // tint, which is always a numeric triple and so can never spell `raw`.
   const punchKey = punch ? `${punch.x},${punch.y},${punch.w},${punch.h}` : '';
-  return cached(`trim|${id}|${tint ? tint.join(',') : 'raw'}|${source.length}|${boxKey}|${punchKey}`, async () => {
+  return cached(`trim|${id}|${tint ? tint.join(',') : 'raw'}|${sourceKey(source)}|${boxKey}|${punchKey}`, async () => {
     const img = await loadImage(source);
     const { canvas, w, h } = drawAt(img, CASING_W);
 

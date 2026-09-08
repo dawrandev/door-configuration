@@ -10,6 +10,7 @@ use App\Http\Controllers\Api\Admin\TrimController;
 use App\Http\Controllers\Api\AuthController;
 use App\Http\Controllers\Api\CatalogController;
 use Illuminate\Support\Facades\Route;
+use Illuminate\Support\Facades\Storage;
 
 /*
 |--------------------------------------------------------------------------
@@ -89,3 +90,38 @@ Route::prefix('api')->group(function () {
         Route::post('{kind}/{id}/unhide', [CatalogItemController::class, 'unhide'])->where(['kind' => $kinds, 'id' => $id]);
     });
 });
+
+/*
+|--------------------------------------------------------------------------
+| Catalogue pictures
+|--------------------------------------------------------------------------
+|
+| Every catalogue file is named after a hash of its own bytes, so a given URL
+| can never mean two different pictures — which is exactly the condition that
+| makes `immutable` safe (Architecture.md §5). Without it a showroom re-fetched
+| a 200KB door on every colour the customer tried: Laravel's own `serve` route
+| answers with `no-store`, being written for files that can change under a
+| fixed name.
+|
+| Registered BEFORE the disk's serve route, which the framework appends, so
+| this one matches first. In production the public/storage symlink normally
+| answers ahead of PHP entirely and the web server's own caching applies; this
+| covers the shared-hosting case where that symlink cannot exist.
+|
+*/
+Route::get('storage/catalog/{path}', function (string $path) {
+    // The pattern below has to allow dots (every filename has one) and slashes
+    // (the files are nested by id), which together also spell `..` — so the
+    // one thing it cannot express is excluded here. Without this the route
+    // reads anything else on the public disk, which a test caught doing.
+    abort_if(str_contains($path, '..'), 404);
+
+    $disk = Storage::disk('public');
+    $file = 'catalog/'.$path;
+
+    abort_unless($disk->exists($file), 404);
+
+    return $disk->response($file, null, [
+        'Cache-Control' => 'public, max-age=31536000, immutable',
+    ]);
+})->where('path', '[A-Za-z0-9._/-]+')->name('catalog.file');
