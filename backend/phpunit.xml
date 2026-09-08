@@ -5,9 +5,9 @@
          colors="true"
 >
     <testsuites>
-        <testsuite name="Unit">
-            <directory>tests/Unit</directory>
-        </testsuite>
+        <!-- Feature only: every rule worth pinning here runs through a route,
+             and a declared-but-absent suite made `artisan test` refuse to run
+             at all rather than skip it. Add Unit back with its first test. -->
         <testsuite name="Feature">
             <directory>tests/Feature</directory>
         </testsuite>
