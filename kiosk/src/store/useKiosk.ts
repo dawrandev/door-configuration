@@ -1,24 +1,19 @@
 import { create } from 'zustand';
-import { LEAVES as BASE_LEAVES } from '../catalog/leaves.generated';
-import { ROOMS as BASE_ROOMS } from '../catalog/rooms.generated';
-import { TRIMS as BASE_TRIMS } from '../catalog/trims.generated';
-import { mergeLeaves, mergeRooms, mergeTrims, mergeColors } from '../admin/adminStore';
+import { getCatalog, getCatalogVersion } from '../api/catalog';
 import type { Leaf, Room, TrimModel } from '../catalog/types';
-import { COLORS as BASE_COLORS, DEFAULT_COLOR, TRIM_SAME, TRIM_DEFAULT, type DoorColor } from '../catalog/colors';
+import { DEFAULT_COLOR, TRIM_SAME, TRIM_DEFAULT, type DoorColor } from '../catalog/colors';
 import { LANGS, type Lang } from '../i18n/strings';
 
 /**
- * The catalogue the showroom shows: the doors, rooms, trim designs and
- * colours the pipeline prepared, plus anything a salesperson added or
- * edited at the bench. Built-ins and bench items are the same shape, so the
- * app cannot tell them apart — which is the point. Held in state, and
- * rebuilt whenever the bench changes, so a published door, room, trim
- * design or colour appears without a reload.
+ * The catalogue the showroom shows now comes from the backend, not from a
+ * compiled-in list merged with this browser's own localStorage.
+ *
+ * That was the whole point of the move: a door published at the bench has to
+ * appear in the showroom, and the showroom is frequently not even the same
+ * machine. Nothing else about the journey changed — the lists still live in
+ * state, and built-ins and bench items are still the same shape, so no screen
+ * can tell them apart.
  */
-const buildLeaves = (): Leaf[] => mergeLeaves(BASE_LEAVES);
-const buildRooms = (): Room[] => mergeRooms(BASE_ROOMS);
-const buildTrims = (): TrimModel[] => mergeTrims(BASE_TRIMS);
-const buildColors = (): DoorColor[] => mergeColors(BASE_COLORS);
 
 /** `'oq'` is never a restricted paint, so a leaf's own `colorIds` (if any)
  *  never needs to mention it — every leaf and every colour list implicitly
@@ -101,7 +96,18 @@ export function stepLabel(screen: Screen, opts: { hasNalichnik: boolean; hasKoro
   return `${String(i).padStart(2, '0')} / ${String(order.length).padStart(2, '0')}`;
 }
 
+/** Whether the catalogue has arrived. Every screen needs a list to render,
+ *  and over a network there is a moment when there is none — which the old
+ *  compiled-in catalogue never had. */
+export type CatalogStatus = 'loading' | 'ready' | 'error';
+
 interface KioskState {
+  status: CatalogStatus;
+  /** Why the catalogue could not be read, for the retry screen. */
+  error?: string;
+  /** The backend's own version string. Polled, so a door published at the
+   *  bench reaches a showroom running on another machine. */
+  version: string;
   screen: Screen;
   lang: Lang;
   roomId: string;
@@ -141,24 +147,27 @@ interface KioskState {
   setKorona: (id: string) => void;
   /** Carousel swipe: ±1 through the door list, wrapping. */
   stepLeaf: (delta: number) => void;
-  refresh: () => void;
+  /** Re-read the catalogue from the backend. */
+  refresh: () => Promise<void>;
 }
 
 const first = <T extends { id: string }>(list: T[], fallback: string) => (list[0]?.id ?? fallback);
 
 export const useKiosk = create<KioskState>((set) => ({
+  status: 'loading',
+  version: '',
   screen: 'attract',
   lang: 'uz',
-  roomId: first(buildRooms(), BASE_ROOMS[0].id),
-  leafId: first(buildLeaves(), BASE_LEAVES[0].id),
+  roomId: '',
+  leafId: '',
   colorId: DEFAULT_COLOR,
   trimColorId: TRIM_SAME,
   nalichnikId: TRIM_DEFAULT,
   koronaId: TRIM_DEFAULT,
-  leaves: buildLeaves(),
-  rooms: buildRooms(),
-  trims: buildTrims(),
-  colors: buildColors(),
+  leaves: [],
+  rooms: [],
+  trims: [],
+  colors: [],
 
   go: (screen) => set({ screen }),
   next: () => set((s) => ({ screen: walk(NEXT, s.screen, s.trims) })),
@@ -171,45 +180,47 @@ export const useKiosk = create<KioskState>((set) => ({
    * door's own colour list can also have just changed underneath a customer
    * mid-session, so the paint is re-checked against it too.
    */
-  refresh: () =>
-    set((s) => {
-      const leaves = buildLeaves();
-      const rooms = buildRooms();
-      const trims = buildTrims();
-      const colors = buildColors();
-      const leafId = leaves.some((l) => l.id === s.leafId) ? s.leafId : first(leaves, s.leafId);
-      const leaf = leaves.find((l) => l.id === leafId);
-      return {
-        leaves,
-        rooms,
-        trims,
-        colors,
-        leafId,
-        roomId: rooms.some((r) => r.id === s.roomId) ? s.roomId : first(rooms, s.roomId),
-        colorId: colorAllowed(leaf, s.colorId) ? s.colorId : DEFAULT_COLOR,
-        // A stale/removed pick is left as-is rather than reset here — it
-        // resolves to TRIM_DEFAULT at render time (WallStage.tsx), same as
-        // an id that was never valid, so there is nothing to correct.
-      };
-    }),
+  refresh: async () => {
+    try {
+      const cat = await getCatalog();
+      set((s) => {
+        const leafId = cat.leaves.some((l) => l.id === s.leafId) ? s.leafId : first(cat.leaves, s.leafId);
+        const leaf = cat.leaves.find((l) => l.id === leafId);
+        return {
+          status: 'ready' as const,
+          error: undefined,
+          version: cat.version,
+          leaves: cat.leaves,
+          rooms: cat.rooms,
+          trims: cat.trims,
+          colors: cat.colors,
+          leafId,
+          roomId: cat.rooms.some((r) => r.id === s.roomId) ? s.roomId : first(cat.rooms, s.roomId),
+          colorId: colorAllowed(leaf, s.colorId) ? s.colorId : DEFAULT_COLOR,
+          // A stale/removed pick is left as-is rather than reset here — it
+          // resolves to TRIM_DEFAULT at render time (WallStage.tsx), same as
+          // an id that was never valid, so there is nothing to correct.
+        };
+      });
+    } catch (e) {
+      // Keep whatever is already on screen: a customer mid-journey should not
+      // lose their door because one poll failed. Only a first load, which has
+      // nothing to keep, actually shows the error.
+      set((s) => (s.status === 'ready' ? s : { status: 'error' as const, error: e instanceof Error ? e.message : String(e) }));
+    }
+  },
 
   /**
    * "Start over" — a deliberate button, never a timer. This is a staffed
    * monitor, so a customer who is thinking keeps their door; the salesperson
    * clears the screen when they decide to.
    */
-  reset: () => {
-    const leaves = buildLeaves();
-    const rooms = buildRooms();
-    const trims = buildTrims();
-    const colors = buildColors();
-    set({
+  reset: () =>
+    set((s) => ({
       screen: 'attract', lang: 'uz',
-      roomId: first(rooms, BASE_ROOMS[0].id), leafId: first(leaves, BASE_LEAVES[0].id),
+      roomId: first(s.rooms, s.roomId), leafId: first(s.leaves, s.leafId),
       colorId: DEFAULT_COLOR, trimColorId: TRIM_SAME, nalichnikId: TRIM_DEFAULT, koronaId: TRIM_DEFAULT,
-      leaves, rooms, trims, colors,
-    });
-  },
+    })),
 
   setLang: (lang) => set({ lang }),
   cycleLang: () => set((s) => ({ lang: LANGS[(LANGS.indexOf(s.lang) + 1) % LANGS.length] })),
@@ -239,10 +250,34 @@ export const useKiosk = create<KioskState>((set) => ({
     }),
 }));
 
-// A door or room changed at the bench should appear in the showroom without a
-// reload — the bench dispatches this, and the store rebuilds.
+/**
+ * A door published at the bench has to reach the showroom, and the two are
+ * usually different machines — so this can no longer be a same-tab event. The
+ * version endpoint is a few bytes and answers from one indexed query, so
+ * polling it is cheaper than re-reading the catalogue to find out nothing
+ * changed.
+ */
+const POLL_MS = 15_000;
+
+export function startCatalogPolling(): () => void {
+  const tick = async () => {
+    const { status, version, refresh } = useKiosk.getState();
+    try {
+      const next = await getCatalogVersion();
+      if (status !== 'ready' || next.version !== version) await refresh();
+    } catch {
+      // A dropped network is not worth a visible error while a catalogue is
+      // already on screen; the next tick picks it back up.
+    }
+  };
+  const id = window.setInterval(tick, POLL_MS);
+  return () => window.clearInterval(id);
+}
+
 if (typeof window !== 'undefined') {
-  window.addEventListener('dc-catalog-changed', () => useKiosk.getState().refresh());
+  // The bench and the showroom can be the same tab (a salesperson flipping
+  // between them), where waiting out a poll would feel broken.
+  window.addEventListener('dc-catalog-changed', () => { void useKiosk.getState().refresh(); });
 }
 
 /** Whether each of the two independent trim categories has anything
