@@ -1,18 +1,15 @@
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { COLOR, FONT, RADIUS, RADIUS_SM, TOUCH_MIN, TYPE } from '../design/tokens';
-import { LEAVES as BASE_LEAVES } from '../catalog/leaves.generated';
-import { ROOMS as BASE_ROOMS } from '../catalog/rooms.generated';
-import { TRIMS as BASE_TRIMS } from '../catalog/trims.generated';
-import type { Leaf, Room, TrimModel } from '../catalog/types';
 import { DoorBench } from './DoorBench';
 import { RoomBench } from './RoomBench';
 import { TrimBench } from './TrimBench';
 import { Masthead, ToastHost, ConfirmModal, DANGER, AdminGhostButton, AdminPrimaryButton, useToast } from './adminKit';
 import {
-  mergeLeaves, mergeRooms, mergeTrims, editLeaf, editRoom, editTrim, removeLeaf, removeRoom, removeTrimModel,
-  isBuiltIn, isOverridden, isRoomOverridden, isTrimOverridden,
-  type AdminLeaf, type AdminRoom, type AdminTrim,
-} from './adminStore';
+  getAdminCatalog, renameItem, deleteItem, me, logout, getDiagnostics,
+  type AdminCatalog, type AdminLeaf, type AdminRoom, type AdminTrim, type ItemKind,
+} from '../api/catalog';
+import { ApiError } from '../api/http';
+import { BenchLogin } from './BenchLogin';
 
 /**
  * The workshop bench: one place to manage the whole catalogue.
@@ -42,17 +39,11 @@ const TAB_ADD_LABEL: Record<Tab, string> = { doors: 'Yangi eshik', rooms: 'Yangi
  * (`useState(readCatalog)`) and the same code path serves both the first render
  * and every later refresh.
  */
-function readCatalog() {
-  const leaves = mergeLeaves(BASE_LEAVES);
-  const rooms = mergeRooms(BASE_ROOMS);
-  const trims = mergeTrims(BASE_TRIMS);
-  return {
-    leaves, rooms, trims,
-    overriddenLeaves: new Set(leaves.filter((l) => isOverridden(l.id)).map((l) => l.id)),
-    overriddenRooms: new Set(rooms.filter((r) => isRoomOverridden(r.id)).map((r) => r.id)),
-    overriddenTrims: new Set(trims.filter((t) => isTrimOverridden(t.id)).map((t) => t.id)),
-  };
-}
+const EMPTY: AdminCatalog = { version: '', leaves: [], rooms: [], trims: [], colors: [] };
+
+/** Whether the bench has a session. Checked once, then again whenever a write
+ *  comes back 401/419 — a session can expire mid-shift. */
+type Session = 'checking' | 'out' | 'in';
 
 export function Admin() {
   const [tab, setTab] = useState<Tab>('doors');
@@ -75,14 +66,70 @@ export function Admin() {
    * counter — a counter would be a dependency the memo never reads, which is a
    * lie to anyone reading it and to the linter both.
    */
-  const [catalog, setCatalog] = useState(readCatalog);
-  useEffect(() => {
-    const r = () => setCatalog(readCatalog());
-    window.addEventListener('dc-catalog-changed', r);
-    return () => window.removeEventListener('dc-catalog-changed', r);
+  const [session, setSession] = useState<Session>('checking');
+  const [catalog, setCatalog] = useState<AdminCatalog>(EMPTY);
+  const [loadError, setLoadError] = useState<string | null>(null);
+
+  /**
+   * The bench's catalogue, read from the backend rather than parsed out of
+   * this browser. Held in state and reloaded after every write, so the list
+   * always shows what the server actually holds — which is now the only copy.
+   */
+  const reload = useCallback(async () => {
+    try {
+      const next = await getAdminCatalog();
+      if (next) setCatalog(next);
+      setLoadError(null);
+      setSession('in');
+    } catch (e) {
+      if (e instanceof ApiError && e.needsLogin) { setSession('out'); return; }
+      setLoadError(e instanceof Error ? e.message : String(e));
+    }
   }, []);
 
-  const closeBench = () => { setAdding(false); setEditLeafItem(null); setEditRoomItem(null); setEditTrimItem(null); };
+  useEffect(() => {
+    void (async () => {
+      try {
+        await me();
+        await reload();
+      } catch {
+        setSession('out');
+      }
+    })();
+  }, [reload]);
+
+  /** Every write goes through here so one expired session is handled once
+   *  rather than in each of the three cards. */
+  const run = useCallback(async (op: () => Promise<unknown>) => {
+    try {
+      await op();
+      await reload();
+    } catch (e) {
+      if (e instanceof ApiError && e.needsLogin) setSession('out');
+      else setLoadError(e instanceof Error ? e.message : String(e));
+    }
+  }, [reload]);
+
+  const rename = useCallback((kind: ItemKind, id: string, uz: string) => {
+    void run(() => renameItem(kind, id, { uz, kk: uz, ru: uz }));
+  }, [run]);
+  const remove = useCallback((kind: ItemKind, id: string) => {
+    void run(() => deleteItem(kind, id));
+  }, [run]);
+
+  const closeBench = useCallback(() => {
+    setAdding(false);
+    setEditLeafItem(null);
+    setEditRoomItem(null);
+    setEditTrimItem(null);
+    void reload();
+  }, [reload]);
+
+  if (session === 'checking') {
+    return <Shell><div style={{ padding: 40, ...TYPE.small, color: COLOR.inkSoft }}>Tekshirilmoqda…</div></Shell>;
+  }
+  if (session === 'out') return <BenchLogin onDone={() => { setSession('checking'); void reload(); }} />;
+
   if (editLeafItem) return <Shell onDone={closeBench}><DoorBench edit={editLeafItem} onDone={closeBench} /></Shell>;
   if (editRoomItem) return <Shell onDone={closeBench}><RoomBench edit={editRoomItem} onDone={closeBench} /></Shell>;
   if (editTrimItem) return <Shell onDone={closeBench}><TrimBench edit={editTrimItem} onDone={closeBench} /></Shell>;
@@ -90,7 +137,7 @@ export function Admin() {
   if (adding && tab === 'rooms') return <Shell onDone={closeBench}><RoomBench onDone={closeBench} /></Shell>;
   if (adding && tab === 'trims') return <Shell onDone={closeBench}><TrimBench onDone={closeBench} /></Shell>;
 
-  const { leaves, rooms, trims, overriddenLeaves, overriddenRooms, overriddenTrims } = catalog;
+  const { leaves, rooms, trims } = catalog;
 
   const q = query.trim().toLowerCase();
   const shownLeaves = q ? leaves.filter((l) => l.name.uz.toLowerCase().includes(q)) : leaves;
@@ -109,6 +156,12 @@ export function Admin() {
           recentName={recent?.name.uz}
         />
 
+        {loadError && (
+          <div style={{ marginBottom: 14, padding: '10px 12px', borderRadius: RADIUS_SM, border: `1px solid ${DANGER.border}`, background: DANGER.bg, color: DANGER.text, fontSize: 13 }}>
+            {loadError}
+          </div>
+        )}
+
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8, flexWrap: 'wrap', gap: 14 }}>
           <div style={{ display: 'flex', gap: 4, background: COLOR.panel, border: `1px solid ${COLOR.line}`, borderRadius: 999, padding: 4 }}>
             {(['doors', 'rooms', 'trims'] as Tab[]).map((t) => (
@@ -125,6 +178,12 @@ export function Admin() {
               style={{ ...searchInput, flex: 1 }}
             />
             <DiagnosticsButton />
+            <AdminGhostButton
+              onClick={() => { void (async () => { try { await logout(); } finally { setSession('out'); } })(); }}
+              style={{ width: 'auto', whiteSpace: 'nowrap', padding: '0 14px' }}
+            >
+              Chiqish
+            </AdminGhostButton>
             <AdminPrimaryButton onClick={() => setAdding(true)} style={{ width: 'auto', whiteSpace: 'nowrap', padding: '0 20px' }}>
               + {TAB_ADD_LABEL[tab]}
             </AdminPrimaryButton>
@@ -144,7 +203,7 @@ export function Admin() {
             <EmptyState label={q ? 'Shu nomda eshik topilmadi' : 'Hozircha eshiklar yo‘q — yuqoridagi tugma bilan qo‘shing'} />
           ) : (
             <Grid>
-              {shownLeaves.map((l) => <DoorCard key={l.id} leaf={l} overridden={overriddenLeaves.has(l.id)} onEdit={() => setEditLeafItem(l as AdminLeaf)} />)}
+              {shownLeaves.map((l) => <DoorCard key={l.id} leaf={l} onEdit={() => setEditLeafItem(l)} onRename={(uz) => rename('leaves', l.id, uz)} onDelete={() => remove('leaves', l.id)} />)}
             </Grid>
           )
         ) : tab === 'rooms' ? (
@@ -152,14 +211,14 @@ export function Admin() {
             <EmptyState label={q ? 'Shu nomda xona topilmadi' : 'Hozircha xonalar yo‘q — yuqoridagi tugma bilan qo‘shing'} />
           ) : (
             <Grid>
-              {shownRooms.map((r) => <RoomCard key={r.id} room={r} overridden={overriddenRooms.has(r.id)} onEdit={() => setEditRoomItem(r as AdminRoom)} />)}
+              {shownRooms.map((r) => <RoomCard key={r.id} room={r} onEdit={() => setEditRoomItem(r)} onRename={(uz) => rename('rooms', r.id, uz)} onDelete={() => remove('rooms', r.id)} />)}
             </Grid>
           )
         ) : shownTrims.length === 0 ? (
           <EmptyState label={q ? 'Shu nomda nalichnik topilmadi' : 'Hozircha nalichnik dizaynlari yo‘q — yuqoridagi tugma bilan qo‘shing'} />
         ) : (
           <Grid>
-            {shownTrims.map((t) => <TrimCard key={t.id} trim={t} overridden={overriddenTrims.has(t.id)} onEdit={() => setEditTrimItem(t as AdminTrim)} />)}
+            {shownTrims.map((t) => <TrimCard key={t.id} trim={t} onEdit={() => setEditTrimItem(t)} onRename={(uz) => rename('trims', t.id, uz)} onDelete={() => remove('trims', t.id)} />)}
           </Grid>
         )}
       </div>
@@ -167,13 +226,13 @@ export function Admin() {
   );
 }
 
-/** The most recently created/re-cut item, across doors, rooms and trims —
- *  only bench-touched items carry a `createdAt`, so a stock built-in never
- *  wins this even though it's structurally the same shape. */
-function mostRecent(items: (Leaf | Room | TrimModel)[]): (Leaf | Room | TrimModel) | null {
-  const dated = items.filter((i): i is (Leaf | Room | TrimModel) & { createdAt: number } => typeof (i as AdminLeaf | AdminRoom | AdminTrim).createdAt === 'number');
+/** The most recently published or re-cut item, across doors, rooms and trims.
+ *  A stock built-in that nobody has touched carries the timestamp of the
+ *  seed, so this is "what changed last", not "what is newest". */
+function mostRecent(items: (AdminLeaf | AdminRoom | AdminTrim)[]): (AdminLeaf | AdminRoom | AdminTrim) | null {
+  const dated = items.filter((i) => typeof i.updatedAt === 'string');
   if (!dated.length) return null;
-  return dated.reduce((a, b) => (b.createdAt > a.createdAt ? b : a));
+  return dated.reduce((a, b) => (b.updatedAt! > a.updatedAt! ? b : a));
 }
 
 function Stats({ doorCount, roomCount, trimCount, recentName }: { doorCount: number; roomCount: number; trimCount: number; recentName?: string }) {
@@ -195,9 +254,10 @@ function Stats({ doorCount, roomCount, trimCount, recentName }: { doorCount: num
   );
 }
 
-function DoorCard({ leaf, overridden, onEdit }: { leaf: Leaf; overridden: boolean; onEdit: () => void }) {
+function DoorCard({ leaf, onEdit, onRename, onDelete }: { leaf: AdminLeaf; onEdit: () => void; onRename: (uz: string) => void; onDelete: () => void }) {
   const [name, setName] = useState(leaf.name.uz);
-  const builtIn = isBuiltIn(leaf.id);
+  const builtIn = leaf.origin === 'builtin';
+  const overridden = leaf.overridden;
   // Every door can be re-cut now: a bench door reloads its data URL, a built-in
   // its bundled source — so the first four are as editable as the rest.
   const canReedit = !!leaf.source || !builtIn;
@@ -208,17 +268,18 @@ function DoorCard({ leaf, overridden, onEdit }: { leaf: Leaf; overridden: boolea
         <img src={leaf.image} alt="" style={{ width: '100%', height: '100%', objectFit: 'contain' }} />
         {builtIn ? <span style={badge}>{overridden ? 'tahrirlangan' : 'tayyor'}</span> : <span style={badgeAdded}>qo‘shilgan</span>}
       </div>
-      <input value={name} onChange={(e) => setName(e.target.value)} onBlur={() => name !== leaf.name.uz && editLeaf(leaf.id, { name })} style={cardInput} />
+      <input value={name} onChange={(e) => setName(e.target.value)} onBlur={() => { if (name !== leaf.name.uz) onRename(name); }} style={cardInput} />
       <div style={{ ...TYPE.label, fontSize: 10, color: COLOR.inkSoft, marginTop: 6 }}>{colorNote}</div>
-      <DeleteRow onEdit={canReedit ? onEdit : undefined} onDelete={() => removeLeaf(leaf.id)} kind={overridden ? 'restore' : 'delete'} itemName={leaf.name.uz} />
+      <DeleteRow onEdit={canReedit ? onEdit : undefined} onDelete={onDelete} kind={overridden ? 'restore' : 'delete'} itemName={leaf.name.uz} />
     </Card>
   );
 }
 
-function RoomCard({ room, overridden, onEdit }: { room: Room; overridden: boolean; onEdit: () => void }) {
+function RoomCard({ room, onEdit, onRename, onDelete }: { room: AdminRoom; onEdit: () => void; onRename: (uz: string) => void; onDelete: () => void }) {
   const [name, setName] = useState(room.name.uz);
-  const builtIn = isBuiltIn(room.id);
-  const canReedit = !!(room as AdminRoom).source || !builtIn;
+  const builtIn = room.origin === 'builtin';
+  const overridden = room.overridden;
+  const canReedit = !!room.source || !builtIn;
   const trimCount = room.trimBoxes?.length ?? 0;
   const trimNote = trimCount === 0 ? 'Nalichniksiz' : `${trimCount} ta nalichnik qismi`;
   return (
@@ -226,17 +287,18 @@ function RoomCard({ room, overridden, onEdit }: { room: Room; overridden: boolea
       <div style={{ aspectRatio: THUMB_RATIO, background: `${COLOR.panel} url(${room.thumb ?? room.image}) center 28%/cover`, borderRadius: RADIUS_SM, position: 'relative' }}>
         {builtIn ? <span style={badge}>{overridden ? 'tahrirlangan' : 'tayyor'}</span> : <span style={badgeAdded}>qo‘shilgan</span>}
       </div>
-      <input value={name} onChange={(e) => setName(e.target.value)} onBlur={() => name !== room.name.uz && editRoom(room.id, { name })} style={cardInput} />
+      <input value={name} onChange={(e) => setName(e.target.value)} onBlur={() => { if (name !== room.name.uz) onRename(name); }} style={cardInput} />
       <div style={{ ...TYPE.label, fontSize: 10, color: COLOR.inkSoft, marginTop: 6 }}>{trimNote}</div>
-      <DeleteRow onEdit={canReedit ? onEdit : undefined} onDelete={() => removeRoom(room.id)} kind={overridden ? 'restore' : 'delete'} itemName={room.name.uz} />
+      <DeleteRow onEdit={canReedit ? onEdit : undefined} onDelete={onDelete} kind={overridden ? 'restore' : 'delete'} itemName={room.name.uz} />
     </Card>
   );
 }
 
-function TrimCard({ trim, overridden, onEdit }: { trim: TrimModel; overridden: boolean; onEdit: () => void }) {
+function TrimCard({ trim, onEdit, onRename, onDelete }: { trim: AdminTrim; onEdit: () => void; onRename: (uz: string) => void; onDelete: () => void }) {
   const [name, setName] = useState(trim.name.uz);
-  const builtIn = isBuiltIn(trim.id);
-  const canReedit = !!(trim as AdminTrim).source || !builtIn;
+  const builtIn = trim.origin === 'builtin';
+  const overridden = trim.overridden;
+  const canReedit = !!trim.source || !builtIn;
   const categoryLabel = trim.category === 'nalichnik' ? 'Nalichnik' : 'Korona';
   const pieceNote = `${categoryLabel} · ${trim.trimBoxes.length} ta qism`;
   return (
@@ -245,9 +307,9 @@ function TrimCard({ trim, overridden, onEdit }: { trim: TrimModel; overridden: b
         <img src={trim.trimSource} alt="" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
         {builtIn ? <span style={badge}>{overridden ? 'tahrirlangan' : 'tayyor'}</span> : <span style={badgeAdded}>qo‘shilgan</span>}
       </div>
-      <input value={name} onChange={(e) => setName(e.target.value)} onBlur={() => name !== trim.name.uz && editTrim(trim.id, { name })} style={cardInput} />
+      <input value={name} onChange={(e) => setName(e.target.value)} onBlur={() => { if (name !== trim.name.uz) onRename(name); }} style={cardInput} />
       <div style={{ ...TYPE.label, fontSize: 10, color: COLOR.inkSoft, marginTop: 6 }}>{pieceNote}</div>
-      <DeleteRow onEdit={canReedit ? onEdit : undefined} onDelete={() => removeTrimModel(trim.id)} kind={overridden ? 'restore' : 'delete'} itemName={trim.name.uz} />
+      <DeleteRow onEdit={canReedit ? onEdit : undefined} onDelete={onDelete} kind={overridden ? 'restore' : 'delete'} itemName={trim.name.uz} />
     </Card>
   );
 }
@@ -267,49 +329,27 @@ function TrimCard({ trim, overridden, onEdit }: { trim: TrimModel; overridden: b
 function DiagnosticsButton() {
   const toast = useToast();
   const copy = async () => {
-    const r3 = (v: number) => +v.toFixed(3);
-    const read = (k: string) => {
-      try { return JSON.parse(localStorage.getItem(k) ?? 'null'); } catch { return null; }
-    };
-    const benchTrims: AdminTrim[] = read('dc.trims.v1') ?? [];
-    const report = {
-      trims: mergeTrims(BASE_TRIMS).map((t) => {
-        const src = (benchTrims.find((x) => x.id === t.id) ?? (t as AdminTrim)).trimSource ?? '';
-        return {
-          id: t.id,
-          name: t.name.uz,
-          category: t.category,
-          margin: t.trimMargin,
-          source: src ? `${src.slice(5, src.indexOf(';'))} ${Math.round(src.length / 1024)}KB` : 'MISSING',
-          boxes: (t.trimBoxes ?? []).map((b) => ({
-            role: b.role, label: b.label,
-            x: r3(b.x), y: r3(b.y), w: r3(b.w), h: r3(b.h),
-            points: b.points?.map((p) => [r3(p.x), r3(p.y)]),
-            hole: b.holePoints?.length ?? 0,
-          })),
-        };
-      }),
-      rooms: mergeRooms(BASE_ROOMS).map((rm) => ({
-        id: rm.id, open: rm.open, trimBoxes: rm.trimBoxes?.map((b) => ({ x: r3(b.x), y: r3(b.y), w: r3(b.w), h: r3(b.h), role: b.role })),
-      })),
-      doors: mergeLeaves(BASE_LEAVES).map((l) => ({ id: l.id, name: l.name.uz, trimRoles: l.trimRoles ?? 'all' })),
-    };
-    // Unindented: this gets pasted into a chat, and the numbers are the
-    // point, not the layout.
-    const text = JSON.stringify(report);
     try {
-      await navigator.clipboard.writeText(text);
-      toast('Nusxalandi — yopishtiring');
+      const report = await getDiagnostics();
+      // Unindented: this gets pasted into a chat, and the numbers are the
+      // point, not the layout.
+      const text = JSON.stringify(report);
+      try {
+        await navigator.clipboard.writeText(text);
+        toast('Nusxalandi — yopishtiring');
+      } catch {
+        // A clipboard the browser will not hand over (an insecure origin, a
+        // permission refused) still has to give the numbers up somehow.
+        const w = window.open('', '_blank');
+        if (w) { w.document.write('<pre>' + text.replace(/</g, '&lt;') + '</pre>'); toast('Yangi oynada ochildi'); }
+        else toast('Nusxalab bo‘lmadi');
+      }
     } catch {
-      // A clipboard the browser will not hand over (an insecure origin, a
-      // permission refused) still has to give the numbers up somehow.
-      const w = window.open('', '_blank');
-      if (w) { w.document.write('<pre>' + text.replace(/</g, '&lt;') + '</pre>'); toast('Yangi oynada ochildi'); }
-      else toast('Nusxalab bo‘lmadi');
+      toast('Tashxisni o‘qib bo‘lmadi');
     }
   };
   return (
-    <AdminGhostButton onClick={copy} style={{ width: 'auto', whiteSpace: 'nowrap', padding: '0 14px' }}>
+    <AdminGhostButton onClick={() => void copy()} style={{ width: 'auto', whiteSpace: 'nowrap', padding: '0 14px' }}>
       Tashxis
     </AdminGhostButton>
   );

@@ -138,7 +138,7 @@ function multipart(payload: unknown, files: object): FormData {
   form.append('payload', JSON.stringify(payload));
   for (const [name, blob] of Object.entries(files)) {
     // A filename is required or PHP does not populate $_FILES for the part.
-    if (blob instanceof Blob) form.append(name, blob, name + '.bin');
+    if (blob instanceof Blob) form.append(name, blob, `${name}.${blobExt(blob)}`);
   }
   return form;
 }
@@ -190,3 +190,24 @@ export const unhideItem = (kind: ItemKind, id: string) =>
   api<null>(`admin/${kind}/${id}/unhide`, { method: 'POST' });
 
 export const getDiagnostics = () => api<unknown>('admin/diagnostics');
+
+/**
+ * A canvas data URL as a file the backend can take.
+ *
+ * The benches all end at `toDataURL`, which is what localStorage needed. The
+ * API takes real uploads instead — same bytes, one base64 round-trip less on
+ * the wire, and PHP gets a size and a MIME type it can validate.
+ */
+export function dataUrlToBlob(dataUrl: string): Blob {
+  const comma = dataUrl.indexOf(',');
+  const header = dataUrl.slice(0, comma);
+  const type = header.slice(5, header.indexOf(';')) || 'application/octet-stream';
+  const bytes = atob(dataUrl.slice(comma + 1));
+  const buf = new Uint8Array(bytes.length);
+  for (let i = 0; i < bytes.length; i++) buf[i] = bytes.charCodeAt(i);
+  return new Blob([buf], { type });
+}
+
+/** The extension the backend will see, so a validated MIME and the stored
+ *  filename agree. */
+export const blobExt = (blob: Blob) => (blob.type.split('/')[1] || 'bin').replace('jpeg', 'jpg');

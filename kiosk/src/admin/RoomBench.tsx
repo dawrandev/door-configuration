@@ -1,7 +1,8 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { COLOR, RADIUS, RADIUS_SM, TOUCH_MIN, TYPE } from '../design/tokens';
 import { processRoom, type Rect } from './roomProcess';
-import { saveRoom, STORAGE_FULL, type AdminRoom } from './adminStore';
+import { publishRoom, dataUrlToBlob, type AdminRoom } from '../api/catalog';
+import { ApiError } from '../api/http';
 import { Panel, PanelBody, PanelFooter, Label, Section, inp, AdminPrimaryButton, Handle, DimHUD, DANGER, useToast, ROLE_ORDER, ROLE_META, RoleChip, MoveResize } from './adminKit';
 import { bboxOfPoints, seedPoints, defaultRectFor, nearestLoop, toStoredTrim, toTrimState, type Point, type TrimPieceState } from './trimGeometry';
 import { recolorTrim } from '../render/recolor';
@@ -139,12 +140,13 @@ export function RoomBench({ onDone, edit }: { onDone: () => void; edit?: AdminRo
     setName(edit.name.uz);
     if (edit.trimBoxes) {
       const boxes = edit.trimBoxes;
+      // The parallel `legacyTrimRoles` array is gone with localStorage: the
+      // backend stores a role on the box itself, so a box that still lacks one
+      // came from data old enough that guessing is the only option left.
       setTrim(
         boxes.every((b) => b.role)
           ? boxes.map((b, i) => toTrimState(`${b.role}-${i}`, b))
-          : edit.legacyTrimRoles && edit.legacyTrimRoles.length === boxes.length
-            ? edit.legacyTrimRoles.map((r, i) => toTrimState(`${r.role}-${i}`, boxes[i], r.role, r.label))
-            : inferRoles(boxes)
+          : inferRoles(boxes)
       );
     }
     if (!edit.source) return;
@@ -326,7 +328,7 @@ export function RoomBench({ onDone, edit }: { onDone: () => void; edit?: AdminRo
     return () => { live = false; window.clearTimeout(t); };
   }, [img, box]);
 
-  const publish = () => {
+  const publish = async () => {
     if (!img || !box) return;
     setBusy(true);
     try {
@@ -334,33 +336,30 @@ export function RoomBench({ onDone, edit }: { onDone: () => void; edit?: AdminRo
       // The chooser thumbnail is the room untouched (door and all); the compact
       // source doubles as it, so no black recess shows on the selection screen.
       const thumb = source ?? edit?.source ?? p.image;
-      saveRoom({
-        id: edit?.id ?? 'a-' + Date.now().toString(36),
-        name: { uz: name || 'Xona', kk: name || 'Bólme', ru: name || 'Комната' },
-        image: p.image,
-        thumb,
-        aspect: p.aspect,
-        open: box,
-        // Each piece's role now travels on the box itself (toStoredTrim) — the
-        // old parallel trimRoles array is a read-only fallback for older data,
-        // never written by a fresh publish.
-        trimBoxes: trim.length ? trim.map(toStoredTrim) : undefined,
-        light: p.light,
-        createdAt: edit?.createdAt ?? Date.now(),
-        source: source ?? edit?.source,
-        box,
-      });
+      await publishRoom(
+        {
+          room: {
+            name: { uz: name || 'Xona', kk: name || 'Bólme', ru: name || 'Комната' },
+            aspect: p.aspect,
+            open: box,
+            light: p.light,
+            // Each piece's role now travels on the box itself (toStoredTrim) —
+            // the old parallel trimRoles array is a read-only fallback for
+            // older data, never written by a fresh publish.
+            trimBoxes: trim.length ? trim.map(toStoredTrim) : undefined,
+            box,
+          },
+        },
+        {
+          image: dataUrlToBlob(p.image),
+          thumb: thumb.startsWith('data:') ? dataUrlToBlob(thumb) : undefined,
+          source: source ? dataUrlToBlob(source) : undefined,
+        },
+        edit?.id
+      );
     } catch (err) {
-      // A room is the single largest record the bench writes — the photograph
-      // is encoded at its full natural resolution — so it is the likeliest of
-      // all of them to exhaust the storage drawer. Without this the throw
-      // escaped, `busy` stayed true, and the button sat on "Saqlanmoqda…"
-      // forever with no message: the operator's only clue that anything had
-      // gone wrong was that nothing ever happened.
       setBusy(false);
-      toast(err instanceof Error && err.message === STORAGE_FULL
-        ? 'Xotira to‘lgan — eski xona yoki eshiklarni o‘chiring'
-        : 'Saqlashda xatolik — qaytadan urinib ko‘ring');
+      toast(err instanceof ApiError ? err.message : 'Saqlashda xatolik — qaytadan urinib ko‘ring');
       return;
     }
     setBusy(false);
@@ -578,7 +577,7 @@ export function RoomBench({ onDone, edit }: { onDone: () => void; edit?: AdminRo
         </PanelBody>
         {img && box && (
           <PanelFooter>
-            <AdminPrimaryButton onClick={publish} disabled={busy}>
+            <AdminPrimaryButton onClick={() => void publish()} disabled={busy}>
               {busy ? 'Saqlanmoqda…' : 'Katalogga qo‘shish ✓'}
             </AdminPrimaryButton>
           </PanelFooter>

@@ -1,7 +1,8 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { COLOR, RADIUS, RADIUS_SM, TYPE } from '../design/tokens';
 import { rectify, encodeAlpha, photoMargin, type Pt, type Margin } from './rectify';
-import { saveTrimModel, STORAGE_FULL, type AdminTrim } from './adminStore';
+import { publishTrim, dataUrlToBlob, type AdminTrim } from '../api/catalog';
+import { ApiError } from '../api/http';
 import {
   Panel, PanelBody, PanelFooter, Label, Section, inp, AdminPrimaryButton, Seg, Handle, Pad, DANGER, useToast, ROLE_ORDER, ROLE_META, RoleChip, MoveResize,
 } from './adminKit';
@@ -214,7 +215,7 @@ export function TrimBench({ onDone, edit }: { onDone: () => void; edit?: AdminTr
     trimDrag.current = { trimId: active.id, loop, index: idx };
   };
 
-  const publish = () => {
+  const publish = async () => {
     if (!img || corners.length !== 4 || trim.length === 0) return;
     setBusy(true);
     try {
@@ -226,28 +227,27 @@ export function TrimBench({ onDone, edit }: { onDone: () => void; edit?: AdminTr
       small.width = Math.round(tc.width * scale);
       small.height = Math.round(tc.height * scale);
       small.getContext('2d')!.drawImage(tc, 0, 0, small.width, small.height);
-      const trimSource = encodeAlpha(small, 0.85);
 
-      saveTrimModel({
-        id: edit?.id ?? 'a-' + Date.now().toString(36),
-        name: { uz: name || 'Nalichnik', kk: name || 'Naličnik', ru: name || 'Наличник' },
-        category,
-        trimMargin: marginObj,
-        trimBoxes: trim.map(toStoredTrim),
-        trimSource,
-        createdAt: edit?.createdAt ?? Date.now(),
-        source: source ?? edit?.source,
-        corners: corners.map((c) => ({ x: +(c.x / img.width).toFixed(4), y: +(c.y / img.height).toFixed(4) })),
-      });
+      await publishTrim(
+        {
+          trim: {
+            name: { uz: name || 'Nalichnik', kk: name || 'Naličnik', ru: name || 'Наличник' },
+            category,
+            trimMargin: marginObj,
+            trimBoxes: trim.map(toStoredTrim),
+            corners: corners.map((c) => ({ x: +(c.x / img.width).toFixed(4), y: +(c.y / img.height).toFixed(4) })),
+          },
+        },
+        {
+          trimSource: dataUrlToBlob(encodeAlpha(small, 0.85)),
+          // The untouched photo, so the design can be reopened and re-traced.
+          source: source ? dataUrlToBlob(source) : undefined,
+        },
+        edit?.id
+      );
     } catch (err) {
-      // Same failure the door bench already guards against: a full storage
-      // drawer throws out of saveTrimModel, and without this the button stuck
-      // on "Saqlanmoqda…" with nothing said. A trim design carries two encoded
-      // images of its own, so it is not a small record either.
       setBusy(false);
-      toast(err instanceof Error && err.message === STORAGE_FULL
-        ? 'Xotira to‘lgan — eski nalichnik/korona yoki eshiklarni o‘chiring'
-        : 'Saqlashda xatolik — qaytadan urinib ko‘ring');
+      toast(err instanceof ApiError ? err.message : 'Saqlashda xatolik — qaytadan urinib ko‘ring');
       return;
     }
     setBusy(false);
@@ -442,7 +442,7 @@ export function TrimBench({ onDone, edit }: { onDone: () => void; edit?: AdminTr
         </PanelBody>
         {img && (
           <PanelFooter>
-            <AdminPrimaryButton onClick={publish} disabled={trim.length === 0 || busy}>
+            <AdminPrimaryButton onClick={() => void publish()} disabled={trim.length === 0 || busy}>
               {busy ? 'Saqlanmoqda…' : 'Qo‘shish ✓'}
             </AdminPrimaryButton>
           </PanelFooter>

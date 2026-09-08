@@ -2,10 +2,11 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { COLOR, RADIUS, RADIUS_SM, TOUCH_MIN, TYPE } from '../design/tokens';
 import { rectify, stripHandle, neutraliseWhite, encodeAlpha, looksWhite, photoMargin, type Pt, type Margin } from './rectify';
 import {
-  saveLeaf, saveTrimModel, mergeColors, saveColor, derivedTrimId, findDoorTrim, loadTrimEdits, STORAGE_FULL,
-  type AdminLeaf, type AdminColor, type AdminTrim,
-} from './adminStore';
-import { COLORS as BASE_COLORS, type DoorColor } from '../catalog/colors';
+  publishLeaf, addColor as addColorApi, getAdminCatalog, dataUrlToBlob,
+  type AdminLeaf, type AdminTrim, type LeafPayload,
+} from '../api/catalog';
+import { ApiError } from '../api/http';
+import type { DoorColor } from '../catalog/colors';
 import {
   Panel, PanelBody, PanelFooter, Label, Section, inp, AdminPrimaryButton, AdminGhostButton, Seg, Pad, Handle, DANGER, useToast, ROLE_ORDER, ROLE_META, RoleChip, MoveResize,
 } from './adminKit';
@@ -212,7 +213,10 @@ export function DoorBench({ onDone, edit }: { onDone: () => void; edit?: AdminLe
   // store, since only this bench adds to it while it's open. `'oq'` (as
   // photographed) is never in this list — it isn't a paint, and every leaf
   // gets it regardless of `colorIds`, so there is nothing to assign.
-  const [colors, setColors] = useState<DoorColor[]>(() => mergeColors(BASE_COLORS).filter((c) => c.id !== 'oq'));
+  // Paints live on the server now, so the list arrives with the catalogue
+  // rather than being merged out of this browser. 'oq' is the photograph
+  // itself, never a paint anyone picks.
+  const [colors, setColors] = useState<DoorColor[]>([]);
   const [selected, setSelected] = useState<Set<string>>(() => new Set(colors.map((c) => c.id)));
   const [newColorName, setNewColorName] = useState('');
   const [newColorHex, setNewColorHex] = useState('#8F7145');
@@ -273,6 +277,31 @@ export function DoorBench({ onDone, edit }: { onDone: () => void; edit?: AdminLe
    * mid-edit. `colors` is read once here to seed the default selection and is
    * deliberately a snapshot at reopen time.
    */
+  /** This door's already-published designs, so reopening can restore them. */
+  const [doorTrims, setDoorTrims] = useState<AdminTrim[]>([]);
+
+  /**
+   * Paints and this door's designs, read once from the bench catalogue. They
+   * live on the server now, so neither can be merged out of this browser.
+   */
+  useEffect(() => {
+    let live = true;
+    void (async () => {
+      try {
+        const cat = await getAdminCatalog();
+        if (!live || !cat) return;
+        const paints = cat.colors.filter((c) => c.id !== 'oq');
+        setColors(paints);
+        setSelected((sel) => (sel.size ? sel : new Set(paints.map((c) => c.id))));
+        setDoorTrims(edit ? cat.trims.filter((t) => t.ownerLeafId === edit.id) : []);
+      } catch {
+        // The bench shell already reports a catalogue it cannot read; failing
+        // again here would just stack two messages for one cause.
+      }
+    })();
+    return () => { live = false; };
+  }, [edit]);
+
   useEffect(() => {
     if (!edit) return;
     setName(edit.name.uz);
@@ -281,18 +310,17 @@ export function DoorBench({ onDone, edit }: { onDone: () => void; edit?: AdminLe
     setTrimRoles(new Set(edit.trimRoles ?? DOOR_TRIM_ROLES));
     setStage('door');
 
-    // What this door traced last time, back as editable outlines. It lives
-    // in the trim catalog under an id derived from the door, so there is no
-    // back-reference to keep in sync — and reopening is meant to be a nudge,
-    // not a re-trace from nothing.
-    const names = loadTrimEdits();
-    const nal = findDoorTrim(edit.id, 'nalichnik');
-    const kor = findDoorTrim(edit.id, 'korona');
+    // What this door traced last time, back as editable outlines. The backend
+    // records which door each design came from, so there is no id convention
+    // to keep in step — and reopening is meant to be a nudge, not a re-trace
+    // from nothing.
+    const nal = doorTrims.find((t) => t.category === 'nalichnik');
+    const kor = doorTrims.find((t) => t.category === 'korona');
     const stored = [...restorePieces(nal?.trimBoxes), ...restorePieces(kor?.trimBoxes)];
     setTrim([]);
     setActiveTrimId(null);
-    setNalichnikName(nal ? (names[nal.id]?.name ?? nal.name.uz) : '');
-    setKoronaName(kor ? (names[kor.id]?.name ?? kor.name.uz) : '');
+    setNalichnikName(nal?.name.uz ?? '');
+    setKoronaName(kor?.name.uz ?? '');
 
     if (!edit.source) return;
     const el = new Image();
@@ -328,7 +356,7 @@ export function DoorBench({ onDone, edit }: { onDone: () => void; edit?: AdminLe
     };
     el.src = edit.source;
     // eslint-disable-next-line react-hooks/exhaustive-deps -- see the docblock: adding `colors` resets the form mid-edit.
-  }, [edit]);
+  }, [edit, doorTrims]);
 
   const onFile = (e: React.ChangeEvent<HTMLInputElement>) => {
     const f = e.target.files?.[0];
@@ -376,29 +404,26 @@ export function DoorBench({ onDone, edit }: { onDone: () => void; edit?: AdminLe
 
   /** Register a brand-new paint — reusable on every future door via the
    *  checkbox above, never re-typed again. */
-  const addColor = () => {
+  const addColor = async () => {
     const hex = /^#[0-9a-fA-F]{6}$/.test(newColorHex) ? newColorHex : null;
     if (!hex || !newColorName.trim()) return;
-    const color: AdminColor = {
-      id: 'a-' + Date.now().toString(36),
-      name: { uz: newColorName, kk: newColorName, ru: newColorName },
-      hex,
-      createdAt: Date.now(),
-    };
     // Registering a paint is its own write, outside publish, so it needs its
-    // own guard: the local list is only extended once the store has actually
+    // own guard: the local list is only extended once the server has actually
     // taken it, or the bench would offer a colour that does not exist and the
     // door would publish a colorIds entry pointing at nothing.
     try {
-      saveColor(color);
+      const color = await addColorApi({
+        id: 'a-' + Date.now().toString(36),
+        name: { uz: newColorName, kk: newColorName, ru: newColorName },
+        hex,
+      });
+      if (!color) return;
+      setColors((cs) => [...cs, color]);
+      setSelected((sel) => new Set(sel).add(color.id));
     } catch (err) {
-      toast(err instanceof Error && err.message === STORAGE_FULL
-        ? 'Xotira to‘lgan — rang qo‘shilmadi'
-        : 'Rang saqlanmadi — qaytadan urinib ko‘ring');
+      toast(err instanceof ApiError ? err.message : 'Rang saqlanmadi — qaytadan urinib ko‘ring');
       return;
     }
-    setColors((cs) => [...cs, color]);
-    setSelected((s) => new Set(s).add(color.id));
     setNewColorName('');
     setNewColorHex('#8F7145');
   };
@@ -604,20 +629,18 @@ export function DoorBench({ onDone, edit }: { onDone: () => void; edit?: AdminLe
     setChecking(false);
   };
 
-  const publish = () => {
+  const publish = async () => {
     if (!img || corners.length !== 4) return;
     setBusy(true);
     try {
-      publishNow();
+      await publishNow();
     } catch (err) {
       // Anything thrown in here used to leave the button reading
-      // "Saqlanmoqda…" for good, with no way to tell what had gone wrong —
-      // and a full storage drawer, which is what a shelf of photographs
-      // eventually causes, throws exactly here.
+      // "Saqlanmoqda…" for good, with no way to tell what had gone wrong.
+      // A rejected publish now says what the backend said — which for a
+      // validation failure names the field.
       setBusy(false);
-      toast(err instanceof Error && err.message === STORAGE_FULL
-        ? 'Xotira to‘lgan — eski nalichnik/korona yoki eshiklarni o‘chiring'
-        : 'Saqlashda xatolik — qaytadan urinib ko‘ring');
+      toast(err instanceof ApiError ? err.message : 'Saqlashda xatolik — qaytadan urinib ko‘ring');
       return;
     }
     setBusy(false);
@@ -625,97 +648,92 @@ export function DoorBench({ onDone, edit }: { onDone: () => void; edit?: AdminLe
     onDone();
   };
 
-  const publishNow = () => {
+  const publishNow = async () => {
     if (!img || corners.length !== 4) return;
     // Render the door at full quality now — publishing never depends on
     // the optional check() above having been run.
     const canvas = rectify(img, corners as [Pt, Pt, Pt, Pt]);
     stripHandle(canvas, handleSide);
     if (white) neutraliseWhite(canvas);
-    // compact JPEG: a full PNG data URL blows the localStorage budget
     const scale = Math.min(1, 820 / canvas.width);
     const small = document.createElement('canvas');
     small.width = Math.round(canvas.width * scale);
     small.height = Math.round(canvas.height * scale);
     small.getContext('2d')!.drawImage(canvas, 0, 0, small.width, small.height);
-    const image = small.toDataURL('image/jpeg', 0.82);
 
     const [TL, TR, BR, BL] = corners;
     const topW = Math.hypot(TR.x - TL.x, TR.y - TL.y);
     const botW = Math.hypot(BR.x - BL.x, BR.y - BL.y);
     const hgt = (Math.hypot(BL.x - TL.x, BL.y - TL.y) + Math.hypot(BR.x - TR.x, BR.y - TR.y)) / 2;
-    const leafId = edit?.id ?? 'a-' + Date.now().toString(36);
-    saveLeaf({
-      id: leafId,
-      name: { uz: name || 'Eshik', kk: name || 'Esik', ru: name || 'Дверь' },
-      image,
-      aspect: +(((topW + botW) / 2) / hgt).toFixed(4),
-      handleSide: handleSide === 'none' ? 'left' : handleSide,
-      handleSwappable: handleSide !== 'none',
-      handleAt: handleSide !== 'none' ? { x: handleSide === 'left' ? 0.09 : 0.91, y: 0.56 } : undefined,
-      createdAt: edit?.createdAt ?? Date.now(),
-      source: source ?? edit?.source,
-      corners: corners.map((c) => ({ x: +(c.x / img.width).toFixed(4), y: +(c.y / img.height).toFixed(4) })),
-      white,
-      handleChoice: handleSide,
-      // Leaving it as "all currently registered" is stored as undefined, not
-      // a frozen list — so this door also picks up any colour registered
-      // AFTER today, exactly like it would have before this feature existed.
-      colorIds: selected.size === colors.length ? undefined : [...selected],
-      // Same "all selected = no restriction" convention as colorIds — a door
-      // that comes with every role a room might have (the common case)
-      // saves as undefined, not a frozen list that would silently exclude a
-      // role added to the standard set later.
-      trimRoles: trimRoles.size === DOOR_TRIM_ROLES.length ? undefined : [...trimRoles],
-    });
+    const doorCorners = corners.map((c) => ({ x: +(c.x / img.width).toFixed(4), y: +(c.y / img.height).toFixed(4) }));
 
-    // Whatever was traced above is never stored on the door — it goes
-    // straight to the shared catalog, split by role into up to two entries,
-    // same as tracing them directly in TrimBench would. Both share the SAME
-    // padded rectify (one photo, one margin); only which pieces go in each
-    // differs.
+    const payload: LeafPayload = {
+      leaf: {
+        name: { uz: name || 'Eshik', kk: name || 'Esik', ru: name || 'Дверь' },
+        aspect: +(((topW + botW) / 2) / hgt).toFixed(4),
+        handleSide: handleSide === 'none' ? 'left' : handleSide,
+        handleSwappable: handleSide !== 'none',
+        handleAt: handleSide !== 'none' ? { x: handleSide === 'left' ? 0.09 : 0.91, y: 0.56 } : null,
+        white,
+        handleChoice: handleSide,
+        corners: doorCorners,
+        // "Every colour, including ones registered after today" is a mode of
+        // its own, not an empty list — a door sold in no colours at all is a
+        // different (if odd) statement, and the backend keeps them apart.
+        colorMode: selected.size === colors.length ? 'all' : 'list',
+        colorIds: selected.size === colors.length ? undefined : [...selected],
+        trimRoleMode: trimRoles.size === DOOR_TRIM_ROLES.length ? 'all' : 'list',
+        trimRoles: trimRoles.size === DOOR_TRIM_ROLES.length ? undefined : [...trimRoles],
+      },
+    };
+
+    const files: { image?: Blob; source?: Blob; trimSource?: Blob } = {
+      image: dataUrlToBlob(small.toDataURL('image/jpeg', 0.82)),
+      source: source ? dataUrlToBlob(source) : undefined,
+    };
+
+    /*
+     * Whatever was traced goes out as its own catalogue design, split by role
+     * into up to two — but in the SAME request as the door, because the
+     * backend writes all three in one transaction. Sending them separately
+     * would make a half-published door reachable by the showroom.
+     */
     if (trim.length > 0) {
       const tc = rectify(img, corners as [Pt, Pt, Pt, Pt], 1200, marginObj);
       // Sized so the DOOR keeps about 600px across it, not the whole padded
       // canvas: now that the reveal is whatever the photograph shows, a flat
-      // total would leave the casing itself coarse. Capped, since every one
-      // of these sits in the same storage budget that once refused a save.
+      // total would leave the casing itself coarse.
       const tscale = Math.min(1, Math.min(1600, 600 * (1 + marginObj.left + marginObj.right)) / tc.width);
       const tsmall = document.createElement('canvas');
       tsmall.width = Math.round(tc.width * tscale);
       tsmall.height = Math.round(tc.height * tscale);
       tsmall.getContext('2d')!.drawImage(tc, 0, 0, tsmall.width, tsmall.height);
-      const trimSource = encodeAlpha(tsmall, 0.85);
-      const trimCorners = corners.map((c) => ({ x: +(c.x / img.width).toFixed(4), y: +(c.y / img.height).toFixed(4) }));
+      files.trimSource = dataUrlToBlob(encodeAlpha(tsmall, 0.85));
 
-      const nalichnikPieces = trim.filter((t) => NALICHNIK_ROLES.includes(t.role));
-      const koronaPieces = trim.filter((t) => t.role === 'crown');
-
-      const publishCategory = (category: 'nalichnik' | 'korona', pieces: TrimPieceState[]) => {
-        // Nothing traced for this category: leave whatever was published
-        // before exactly as it is. A design is independent once it is out in
-        // the catalog, and the finish stage says so rather than quietly
+      const forCategory = (category: 'nalichnik' | 'korona') => {
+        const pieces = category === 'korona'
+          ? trim.filter((t) => t.role === 'crown')
+          : trim.filter((t) => NALICHNIK_ROLES.includes(t.role));
+        // Nothing traced for this category: whatever was published before is
+        // left exactly as it is. A design is independent once it is out in
+        // the catalogue, and the finish stage says so rather than quietly
         // deleting something a customer may already be choosing.
-        if (!pieces.length) return;
+        if (!pieces.length) return null;
         const label = category === 'nalichnik' ? 'Nalichnik' : 'Korona';
-        const name = (category === 'nalichnik' ? nalichnikName : koronaName).trim() || label;
-        const already = findDoorTrim(leafId, category);
-        const catalogTrim: AdminTrim = {
-          id: derivedTrimId(leafId, category),
-          name: { uz: name, kk: name, ru: name },
+        const given = (category === 'nalichnik' ? nalichnikName : koronaName).trim() || label;
+        return {
           category,
+          name: { uz: given, kk: given, ru: given },
           trimMargin: marginObj,
           trimBoxes: pieces.map(toStoredTrim),
-          trimSource,
-          createdAt: already?.createdAt ?? Date.now(),
-          source: source ?? edit?.source,
-          corners: trimCorners,
+          corners: doorCorners,
         };
-        saveTrimModel(catalogTrim);
       };
-      publishCategory('nalichnik', nalichnikPieces);
-      publishCategory('korona', koronaPieces);
+      const trims = [forCategory('nalichnik'), forCategory('korona')].filter((t) => t !== null);
+      if (trims.length) payload.trims = trims;
     }
+
+    await publishLeaf(payload, files, edit?.id);
   };
 
   const dispW = img ? img.width * zoom : 0;
@@ -767,7 +785,7 @@ export function DoorBench({ onDone, edit }: { onDone: () => void; edit?: AdminLe
    *  from being a silent mismatch. */
   const orphaned = (edit ? (['nalichnik', 'korona'] as const) : []).filter((c) => {
     const has = c === 'korona' ? trim.some((t) => t.role === 'crown') : trim.some((t) => NALICHNIK_ROLES.includes(t.role));
-    return !has && !!findDoorTrim(edit!.id, c);
+    return !has && doorTrims.some((t) => t.category === c);
   }).map((c) => (c === 'korona' ? 'korona' : 'nalichnik'));
 
   const tDispW = paddedImg ? paddedImg.width * zoom : 0;
@@ -949,7 +967,7 @@ export function DoorBench({ onDone, edit }: { onDone: () => void; edit?: AdminLe
                   />
                   <input value={newColorHex} onChange={(e) => setNewColorHex(e.target.value)} style={{ ...inp, margin: 0, width: 90 }} placeholder="#8F7145" />
                   <input value={newColorName} onChange={(e) => setNewColorName(e.target.value)} style={{ ...inp, margin: 0, flex: 1 }} placeholder="Rang nomi" />
-                  <AdminGhostButton onClick={addColor} style={{ width: 'auto', minHeight: TOUCH_MIN, padding: '0 14px', fontSize: 13 }}>+ Qo‘shish</AdminGhostButton>
+                  <AdminGhostButton onClick={() => void addColor()} style={{ width: 'auto', minHeight: TOUCH_MIN, padding: '0 14px', fontSize: 13 }}>+ Qo‘shish</AdminGhostButton>
                 </div>
               </Section>
 
@@ -1185,7 +1203,7 @@ export function DoorBench({ onDone, edit }: { onDone: () => void; edit?: AdminLe
                   <AdminGhostButton onClick={check} disabled={checking} style={{ flex: 1 }}>
                     {checking ? 'Ishlanmoqda…' : 'Sifatni tekshirish'}
                   </AdminGhostButton>
-                  <AdminPrimaryButton onClick={publish} disabled={!live || busy} style={{ flex: 1 }}>
+                  <AdminPrimaryButton onClick={() => void publish()} disabled={!live || busy} style={{ flex: 1 }}>
                     {busy ? 'Saqlanmoqda…' : 'Qo‘shish ✓'}
                   </AdminPrimaryButton>
                 </>
