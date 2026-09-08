@@ -241,7 +241,10 @@ export function TrimBench({ onDone, edit }: { onDone: () => void; edit?: AdminTr
         {
           trimSource: dataUrlToBlob(encodeAlpha(small, 0.85)),
           // The untouched photo, so the design can be reopened and re-traced.
-          source: source ? dataUrlToBlob(source) : undefined,
+          // Only a freshly uploaded photograph is a data URL; reopening
+          // hands back the STORED one as a plain url, and decoding that as
+          // base64 throws. Omitted, the backend keeps what it has.
+          source: source?.startsWith('data:') ? dataUrlToBlob(source) : undefined,
         },
         edit?.id
       );

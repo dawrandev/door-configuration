@@ -353,7 +353,10 @@ export function RoomBench({ onDone, edit }: { onDone: () => void; edit?: AdminRo
         {
           image: dataUrlToBlob(p.image),
           thumb: thumb.startsWith('data:') ? dataUrlToBlob(thumb) : undefined,
-          source: source ? dataUrlToBlob(source) : undefined,
+          // Only a freshly uploaded photograph is a data URL; reopening
+          // hands back the STORED one as a plain url, and decoding that as
+          // base64 throws. Omitted, the backend keeps what it has.
+          source: source?.startsWith('data:') ? dataUrlToBlob(source) : undefined,
         },
         edit?.id
       );

@@ -689,7 +689,11 @@ export function DoorBench({ onDone, edit }: { onDone: () => void; edit?: AdminLe
 
     const files: { image?: Blob; source?: Blob; trimSource?: Blob } = {
       image: dataUrlToBlob(small.toDataURL('image/jpeg', 0.82)),
-      source: source ? dataUrlToBlob(source) : undefined,
+      // Only a freshly uploaded photograph is a data URL. Reopening a door
+      // hands back the STORED one as a plain url, and re-uploading it would
+      // mean decoding a url as base64 — which threw, and took the whole
+      // re-publish down with it. Omitted, the backend keeps what it has.
+      source: source?.startsWith('data:') ? dataUrlToBlob(source) : undefined,
     };
 
     /*
