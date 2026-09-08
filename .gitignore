@@ -31,3 +31,12 @@ kiosk/tools/_*.jpg
 
 # smoke-test screenshots
 kiosk/_smoke/
+
+# The showroom build, copied into the Laravel public directory at deploy time.
+# It is generated from kiosk/, so committing it would be a second copy that
+# silently goes stale — and index.html names hashed assets, so a stale one
+# points at files the next build has already replaced.
+/backend/public/index.html
+/backend/public/assets/
+/backend/public/favicon.svg
+/backend/public/icons.svg

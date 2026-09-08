@@ -9,6 +9,8 @@ use App\Http\Controllers\Api\Admin\RoomController;
 use App\Http\Controllers\Api\Admin\TrimController;
 use App\Http\Controllers\Api\AuthController;
 use App\Http\Controllers\Api\CatalogController;
+use Illuminate\Http\Request;
+use Illuminate\Support\Facades\File;
 use Illuminate\Support\Facades\Route;
 use Illuminate\Support\Facades\Storage;
 
@@ -125,3 +127,41 @@ Route::get('storage/catalog/{path}', function (string $path) {
         'Cache-Control' => 'public, max-age=31536000, immutable',
     ]);
 })->where('path', '[A-Za-z0-9._/-]+')->name('catalog.file');
+
+/*
+|--------------------------------------------------------------------------
+| The SPA
+|--------------------------------------------------------------------------
+|
+| This app serves the showroom itself, from its own public directory. That is
+| a correctness requirement rather than a packaging choice: recolor.ts reads
+| every door back out of a canvas with getImageData, and a canvas that has had
+| a cross-origin image drawn into it is tainted, so /storage and the page that
+| draws from it must share an origin (Architecture.md §4).
+|
+| The build is copied into public/ at deploy time and is not in the repository,
+| so this says plainly when it is missing rather than answering a bare 404 that
+| looks like a routing problem.
+|
+| Registered last, as a fallback, so every route above still wins. /api and
+| /storage are excluded: an unmatched call there is a mistake and deserves its
+| own 404, not a page of HTML that a fetch() would try to parse as JSON.
+|
+*/
+Route::fallback(function (Request $request) {
+    if ($request->is('api/*') || $request->is('storage/*')) {
+        abort(404);
+    }
+
+    $index = public_path('index.html');
+
+    abort_unless(File::exists($index), 503, 'The showroom build is not installed. Run the deploy, which copies kiosk/dist into public/.');
+
+    // index.html names the hashed asset files, so it is the one thing that
+    // must never be held: a cached copy would keep pointing at the previous
+    // build's assets, which the deploy has already replaced.
+    return response(File::get($index), 200, [
+        'Content-Type' => 'text/html; charset=UTF-8',
+        'Cache-Control' => 'no-cache, must-revalidate',
+    ]);
+});
