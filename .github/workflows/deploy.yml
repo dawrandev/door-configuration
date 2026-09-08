@@ -1,17 +1,25 @@
 name: Build & Deploy
 
-# Automates what deploy.sh + server-deploy.sh used to do by hand:
-#   1. build the kiosk app,
-#   2. force-push ONLY the build output to the "deploy" branch,
-#   3. SSH into the server and make it fast-forward to that branch.
+# Does on every push to main what deploy.sh + server-deploy.sh do by hand:
 #
-# main's history therefore never carries build artifacts, exactly like before.
+#   1. test the backend and the showroom,
+#   2. build the showroom,
+#   3. force-push a deployable tree — the backend source with the built
+#      showroom already inside public/ — to the "deploy" branch,
+#   4. SSH into the server and run server-deploy.sh there.
+#
+# main's history therefore never carries build artifacts, and the server
+# never needs Node.
+#
+# One-time server setup: backend/docs/deploy.md
 
 on:
   push:
     branches: [main]
     paths:
       - 'kiosk/**'
+      - 'backend/**'
+      - 'deploy.sh'
       - 'server-deploy.sh'
       - '.github/workflows/deploy.yml'
   workflow_dispatch:        # lets you re-deploy from the Actions tab by hand
@@ -22,7 +30,6 @@ concurrency:
   cancel-in-progress: false
 
 env:
-  BASE_PATH: /door/         # sub-path under the domain (must end with /)
   DEPLOY_BRANCH: deploy
 
 jobs:
@@ -31,9 +38,71 @@ jobs:
     permissions:
       contents: write       # needed to force-push the deploy branch
 
+    services:
+      # The suite runs against MySQL deliberately, not sqlite: the schema
+      # leans on json and enum columns the two engines disagree about
+      # (backend/phpunit.xml says why).
+      mysql:
+        image: mysql:8.0
+        env:
+          MYSQL_ROOT_PASSWORD: root
+          MYSQL_DATABASE: door_configurator_test
+        ports: ['3306:3306']
+        options: >-
+          --health-cmd="mysqladmin ping -proot"
+          --health-interval=5s
+          --health-timeout=5s
+          --health-retries=20
+
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+
+      # ---------------------------------------------------------------- backend
+
+      - name: Set up PHP
+        uses: shivammathur/setup-php@v2
+        with:
+          # The floor composer.json declares. If it passes here it passes on
+          # anything newer the server happens to run.
+          php-version: '8.2'
+          extensions: pdo_mysql, mbstring, openssl, tokenizer, xml, ctype, fileinfo, curl
+          coverage: none
+
+      - name: Cache composer packages
+        uses: actions/cache@v4
+        with:
+          path: backend/vendor
+          key: composer-${{ hashFiles('backend/composer.lock') }}
+          restore-keys: composer-
+
+      - name: Install composer dependencies
+        working-directory: backend
+        run: composer install --no-interaction --prefer-dist --no-progress
+
+      - name: Prepare the test environment
+        working-directory: backend
+        # No .env is committed, and without an APP_KEY the encrypter throws on
+        # the first session cookie. DB_* are read by config/database.php from
+        # the environment; phpunit.xml supplies DB_DATABASE.
+        run: |
+          cp .env.example .env
+          php artisan key:generate
+
+      - name: Check formatting
+        working-directory: backend
+        run: ./vendor/bin/pint --test
+
+      - name: Test the backend
+        working-directory: backend
+        env:
+          DB_HOST: 127.0.0.1
+          DB_PORT: 3306
+          DB_USERNAME: root
+          DB_PASSWORD: root
+        run: php artisan test
+
+      # ---------------------------------------------------------------- showroom
 
       - name: Set up Node
         uses: actions/setup-node@v4
@@ -54,11 +123,20 @@ jobs:
         working-directory: kiosk
         run: npm run lint
 
+      - name: Test the showroom
+        working-directory: kiosk
+        run: npm test
+
       - name: Build
         working-directory: kiosk
-        run: npx tsc -b && npx vite build --base="$BASE_PATH"
+        # base=/ because the app is served from the root of its own subdomain,
+        # with the document root pointing at public/. A sub-path would also
+        # need the API base to move, since the SPA addresses /api absolutely.
+        run: npx tsc -b && npx vite build --base=/
 
-      - name: Publish build output to the '${{ env.DEPLOY_BRANCH }}' branch
+      # ---------------------------------------------------------------- publish
+
+      - name: Publish to the '${{ env.DEPLOY_BRANCH }}' branch
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
@@ -67,7 +145,11 @@ jobs:
           # force-pushed fresh every run, so it never accumulates history.
           rm -rf .deploy-out
           mkdir .deploy-out
-          cp -r kiosk/dist/. .deploy-out/
+          # The backend as git has it — no vendor, no .env, no local storage
+          # contents. `git archive` also skips the build output .gitignore
+          # keeps out of main.
+          git archive HEAD backend | tar -x -C .deploy-out --strip-components=1
+          cp -r kiosk/dist/. .deploy-out/public/
           cp server-deploy.sh .deploy-out/
           cd .deploy-out
           git init -q -b "$DEPLOY_BRANCH"

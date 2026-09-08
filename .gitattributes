@@ -1,0 +1,4 @@
+# Shell scripts run on a Linux server. deploy.sh copies server-deploy.sh out
+# of the working tree, so a CRLF checkout on Windows would land CRLF on the
+# deploy branch and bash would fail on the carriage return.
+*.sh text eol=lf

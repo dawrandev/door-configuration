@@ -87,6 +87,18 @@ Brauzerda: showroom ochilsin, eshik rangini o'zgartiring. Rang o'zgarsa
 same-origin ishlayapti (aks holda canvas "tainted" bo'lib rang umuman
 o'zgarmaydi).
 
+## Agar sayt sof nginx bo'lsa
+
+FastPanel odatda nginx + apache beradi, u holda `public/.htaccess` ishlaydi
+va boshqa hech nima kerak emas. Sayt faqat nginx + PHP-FPM bo'lsa, `location`
+blokiga shu qo'shilsin — aks holda `/api/...` va SPA yo'llari 404 qaytaradi:
+
+```nginx
+location / {
+    try_files $uri $uri/ /index.php?$query_string;
+}
+```
+
 ## Ma'lum nozik joylar
 
 - **`storage:link`** symlink o'chirilgan hostingda yiqiladi. Ilova bunga

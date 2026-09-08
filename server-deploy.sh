@@ -35,6 +35,11 @@ echo "==> 1/5 Fetching the deploy branch"
 git fetch origin deploy
 git reset --hard origin/deploy
 
+# Drop the caches the PREVIOUS deploy wrote. Everything below runs artisan,
+# and a stale bootstrap/cache/config.php would answer with the last release's
+# config — including config keys this release added and that one never had.
+php artisan optimize:clear
+
 echo "==> 2/5 Installing PHP dependencies"
 composer install --no-dev --optimize-autoloader --no-interaction --prefer-dist
 
