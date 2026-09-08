@@ -211,7 +211,7 @@ export function DimHUD({ rect, w, h }: { rect: { x: number; y: number; w: number
  * card the containing block instead and squeezed the whole modal down into
  * its width. A portal puts it outside every such ancestor.
  */
-function Modal({ children, onClose }: { children: ReactNode; onClose: () => void }) {
+export function Modal({ children, onClose }: { children: ReactNode; onClose: () => void }) {
   return createPortal(
     <div
       onClick={onClose}

@@ -3,13 +3,14 @@ import { COLOR, FONT, RADIUS, RADIUS_SM, TOUCH_MIN, TYPE } from '../design/token
 import { DoorBench } from './DoorBench';
 import { RoomBench } from './RoomBench';
 import { TrimBench } from './TrimBench';
-import { Masthead, ToastHost, ConfirmModal, DANGER, AdminGhostButton, AdminPrimaryButton, useToast } from './adminKit';
+import { Masthead, ToastHost, Modal, ConfirmModal, DANGER, AdminGhostButton, AdminPrimaryButton, useToast } from './adminKit';
 import {
   getAdminCatalog, renameItem, deleteItem, me, logout, getDiagnostics,
   type AdminCatalog, type AdminLeaf, type AdminRoom, type AdminTrim, type ItemKind,
 } from '../api/catalog';
 import { ApiError } from '../api/http';
 import { BenchLogin } from './BenchLogin';
+import { importLegacy, legacyCount, type ImportReport } from './importLegacy';
 
 /**
  * The workshop bench: one place to manage the whole catalogue.
@@ -177,6 +178,7 @@ export function Admin() {
               placeholder="Nomi bo‘yicha qidirish…"
               style={{ ...searchInput, flex: 1 }}
             />
+            <ImportLegacyButton onDone={() => void reload()} />
             <DiagnosticsButton />
             <AdminGhostButton
               onClick={() => { void (async () => { try { await logout(); } finally { setSession('out'); } })(); }}
@@ -429,3 +431,74 @@ const badge: React.CSSProperties = { position: 'absolute', top: 6, left: 6, ...T
  *  otherwise carries no marker at all, so "tayyor / tahrirlangan / qo'shilgan"
  *  reads as three states only by IMPLIED absence. This makes it explicit. */
 const badgeAdded: React.CSSProperties = { ...badge, color: COLOR.onInk, background: 'rgba(143,113,69,.92)' };
+
+/**
+ * Carry a pre-backend bench across, once.
+ *
+ * Only appears when this browser actually still holds the old drawers, so on
+ * every machine that never had them — which is most of them, and all of them
+ * eventually — there is nothing to explain. It never runs on its own: an
+ * import that fired the first time a stale laptop opened the bench would
+ * rewrite a catalogue everyone else is already using.
+ */
+function ImportLegacyButton({ onDone }: { onDone: () => void }) {
+  const toast = useToast();
+  const [count] = useState(legacyCount);
+  const [busy, setBusy] = useState(false);
+  const [asking, setAsking] = useState(false);
+  const [report, setReport] = useState<ImportReport | null>(null);
+
+  if (count === 0) return null;
+
+  const run = async () => {
+    setAsking(false);
+    setBusy(true);
+    try {
+      const r = await importLegacy((m) => toast(m));
+      setReport(r);
+      onDone();
+    } catch (e) {
+      toast(e instanceof Error ? e.message : 'Ko‘chirib bo‘lmadi');
+    }
+    setBusy(false);
+  };
+
+  return (
+    <>
+      <AdminGhostButton onClick={() => setAsking(true)} disabled={busy} style={{ width: 'auto', whiteSpace: 'nowrap', padding: '0 14px' }}>
+        {busy ? 'Ko‘chirilmoqda…' : `Eskisini ko‘chirish (${count})`}
+      </AdminGhostButton>
+
+      {asking && (
+        <ConfirmModal
+          title="Eski katalogni ko‘chirilsinmi?"
+          message={`Shu brauzerda saqlangan ${count} ta yozuv serverga yuboriladi. Eski nusxa joyida qoladi — hech narsa o‘chirilmaydi.`}
+          confirmLabel="Ha, ko‘chirish"
+          onCancel={() => setAsking(false)}
+          onConfirm={() => void run()}
+        />
+      )}
+
+      {report && (
+        <Modal onClose={() => setReport(null)}>
+          <div style={{ ...TYPE.h2, color: COLOR.ink, marginBottom: 10 }}>Ko‘chirildi</div>
+          <div style={{ ...TYPE.small, color: COLOR.inkSoft, lineHeight: 1.7 }}>
+            Ranglar: {report.colors} · Xonalar: {report.rooms} · Eshiklar: {report.leaves} · Nalichniklar: {report.trims}
+            {report.renamed > 0 && <> · Nomlar: {report.renamed}</>}
+          </div>
+          {report.wasHidden.length > 0 && (
+            <div style={{ ...TYPE.small, color: COLOR.inkSoft, lineHeight: 1.6, marginTop: 10 }}>
+              Eski katalogda yashirilgan edi, lekin bu yerda yashirilmadi: {report.wasHidden.join(', ')}
+            </div>
+          )}
+          {report.failed.length > 0 && (
+            <div style={{ fontSize: 12, color: DANGER.text, lineHeight: 1.6, marginTop: 10 }}>
+              Ko‘chmadi:
+              {report.failed.map((f) => <div key={f.kind + f.id}>{f.kind} {f.id} — {f.why}</div>)}
+            </div>
+          )}
+        </Modal>
+      )}
+    </>
+  );
+}
