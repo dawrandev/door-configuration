@@ -18,18 +18,36 @@ class SpaFallbackTest extends TestCase
 {
     private string $index;
 
+    /**
+     * An installed build lives at exactly the path these tests write to, so
+     * they save it first and put it back afterwards. Without that, running the
+     * suite on a machine that had deployed once silently deleted the showroom.
+     */
+    private ?string $installed = null;
+
     protected function setUp(): void
     {
         parent::setUp();
         $this->index = public_path('index.html');
+        $this->installed = File::exists($this->index) ? File::get($this->index) : null;
     }
 
     protected function tearDown(): void
     {
-        if (File::exists($this->index)) {
+        if ($this->installed !== null) {
+            File::put($this->index, $this->installed);
+        } elseif (File::exists($this->index)) {
             File::delete($this->index);
         }
         parent::tearDown();
+    }
+
+    /** The "no build" cases have to start from a directory that has none. */
+    private function withoutBuild(): void
+    {
+        if (File::exists($this->index)) {
+            File::delete($this->index);
+        }
     }
 
     public function test_it_serves_the_build_when_one_is_installed(): void
@@ -58,7 +76,7 @@ class SpaFallbackTest extends TestCase
 
     public function test_a_missing_build_says_so_instead_of_404ing(): void
     {
-        $this->assertFalse(File::exists($this->index));
+        $this->withoutBuild();
 
         $this->get('/')->assertStatus(503);
     }

@@ -9,7 +9,6 @@ use App\Http\Controllers\Api\Admin\RoomController;
 use App\Http\Controllers\Api\Admin\TrimController;
 use App\Http\Controllers\Api\AuthController;
 use App\Http\Controllers\Api\CatalogController;
-use Illuminate\Http\Request;
 use Illuminate\Support\Facades\File;
 use Illuminate\Support\Facades\Route;
 use Illuminate\Support\Facades\Storage;
@@ -148,11 +147,20 @@ Route::get('storage/catalog/{path}', function (string $path) {
 | own 404, not a page of HTML that a fetch() would try to parse as JSON.
 |
 */
-Route::fallback(function (Request $request) {
-    if ($request->is('api/*') || $request->is('storage/*')) {
-        abort(404);
-    }
+/*
+ * An unmatched API or storage call answers 404 for EVERY method.
+ *
+ * `Route::fallback()` below registers for GET|HEAD only, so without these a
+ * stray DELETE to a route that does not exist matched the fallback's URI but
+ * not its method and came back 405 — a different claim, and one the colour
+ * routes' own test pins, since they are add-only by design.
+ *
+ * Registered after the real routes, which therefore still win.
+ */
+Route::any('api/{any}', fn () => abort(404))->where('any', '.*');
+Route::any('storage/{any}', fn () => abort(404))->where('any', '.*');
 
+Route::fallback(function () {
     $index = public_path('index.html');
 
     abort_unless(File::exists($index), 503, 'The showroom build is not installed. Run the deploy, which copies kiosk/dist into public/.');
