@@ -24,17 +24,24 @@ bash deploy.sh
    standarti: `pdo_mysql`, `mbstring`, `openssl`, `tokenizer`, `xml`,
    `ctype`, `json`, `fileinfo`, `curl`.
 3. **MySQL bazasi** va foydalanuvchi yarating.
-4. **Kodni oling** (deploy branch — unda backend manbasi va qurilgan
-   showroom `public/` ichida turadi):
+4. **Kodni oling** (`deploy` branch — unda backend manbasi va qurilgan
+   showroom `public/` ichida turadi; `vendor`, `.env` va suratlar yo'q).
+
+   FastPanel subdomen yaratganda papkani o'zi yasaydi va ichiga placeholder
+   `index.html` qo'yadi, ya'ni papka bo'sh emas — `git clone` bunday papkaga
+   ishlamaydi. Shuning uchun klon emas, joyida `init` + `fetch`:
 
    ```
-   cd /var/www/<user>/data/www
-   git clone -b deploy --single-branch \
-     https://github.com/dawrandev/door-configuration.git door.dbc-server.uz
+   cd /var/www/<user>/data/www/door.dbc-server.uz
+   git init -q
+   git remote add origin https://github.com/dawrandev/door-configuration.git
+   git fetch origin deploy
+   git checkout -f -B deploy origin/deploy
    ```
 
-   Repo yopiq (private) bo'lsa klon parol so'raydi — GitHub'da Personal
-   Access Token yasab, parol o'rniga shuni bering.
+   Placeholder `index.html` shu bilan almashadi. Repo yopiq (private) bo'lsa
+   `fetch` parol so'raydi — GitHub'da Personal Access Token yasab, parol
+   o'rniga shuni bering.
 
 5. **`.env` yozing** (`.env.example` dan nusxa oling) va shularni to'g'irlang:
 
