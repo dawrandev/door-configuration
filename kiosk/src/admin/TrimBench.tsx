@@ -275,7 +275,7 @@ export function TrimBench({ onDone, edit }: { onDone: () => void; edit?: AdminTr
 
   return (
     <div style={{ display: 'flex', height: '100%', width: '100%', minHeight: 0 }}>
-      <div className="scr" style={{ flex: 1, minWidth: 0, overflow: 'auto', padding: 20, display: 'flex', alignItems: 'flex-start', justifyContent: 'center', background: COLOR.studio }}>
+      <div className="scr" style={{ flex: 1, minWidth: 0, overflow: 'auto', padding: 20, display: 'flex', alignItems: 'flex-start', background: COLOR.studio }}>
         {!img && (
           <label style={{ margin: 'auto', textAlign: 'center', cursor: 'pointer', border: `1.5px dashed ${COLOR.lineStrong}`, borderRadius: RADIUS, padding: '64px 80px', background: '#fff' }}>
             <div style={{ ...TYPE.h2, color: COLOR.ink, marginBottom: 8 }}>Nalichnik rasmini yuklang</div>
@@ -284,7 +284,7 @@ export function TrimBench({ onDone, edit }: { onDone: () => void; edit?: AdminTr
           </label>
         )}
         {img && !showTrimStudio && (
-          <div ref={wrapRef} style={{ position: 'relative', width: dispW, height: dispH, flexShrink: 0, touchAction: 'none' }} onPointerMove={onMove} onPointerUp={() => { drag.current = null; setLens(null); }}>
+          <div ref={wrapRef} style={{ position: 'relative', width: dispW, height: dispH, flexShrink: 0, margin: '0 auto', touchAction: 'none' }} onPointerMove={onMove} onPointerUp={() => { drag.current = null; setLens(null); }}>
             <img src={img.src} alt="" draggable={false} style={{ width: '100%', height: '100%', display: 'block', userSelect: 'none' }} />
             <svg style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', pointerEvents: 'none' }}>
               <polygon points={corners.map((c) => `${c.x * zoom},${c.y * zoom}`).join(' ')} fill={TRACE.doorFill} stroke={COLOR.brass} strokeWidth={2} />
@@ -298,7 +298,7 @@ export function TrimBench({ onDone, edit }: { onDone: () => void; edit?: AdminTr
         {showTrimStudio && (
           <div
             ref={trimWrapRef}
-            style={{ position: 'relative', width: tDispW, height: tDispH, flexShrink: 0, touchAction: 'none' }}
+            style={{ position: 'relative', width: tDispW, height: tDispH, flexShrink: 0, margin: '0 auto', touchAction: 'none' }}
             onPointerMove={onTrimMove}
             onPointerUp={() => { trimDrag.current = null; setTrimLens(null); }}
             onPointerDown={onTrimAddPoint}

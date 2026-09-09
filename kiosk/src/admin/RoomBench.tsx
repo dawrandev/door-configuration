@@ -384,7 +384,7 @@ export function RoomBench({ onDone, edit }: { onDone: () => void; edit?: AdminRo
 
   return (
     <div style={{ display: 'flex', height: '100%', width: '100%', minHeight: 0 }}>
-      <div className="scr" style={{ flex: 1, minWidth: 0, overflow: 'auto', padding: 20, display: 'flex', alignItems: 'flex-start', justifyContent: 'center', background: COLOR.studio }}>
+      <div className="scr" style={{ flex: 1, minWidth: 0, overflow: 'auto', padding: 20, display: 'flex', alignItems: 'flex-start', background: COLOR.studio }}>
         {!img && (
           <label style={{ margin: 'auto', textAlign: 'center', cursor: 'pointer', border: `1.5px dashed ${COLOR.lineStrong}`, borderRadius: RADIUS, padding: '64px 80px', background: '#fff' }}>
             <div style={{ ...TYPE.h2, color: COLOR.ink, marginBottom: 8 }}>Xona rasmini yuklang</div>
@@ -395,7 +395,7 @@ export function RoomBench({ onDone, edit }: { onDone: () => void; edit?: AdminRo
         {img && box && (
           <div
             ref={wrapRef}
-            style={{ position: 'relative', width: dispW, height: dispH, flexShrink: 0, touchAction: 'none' }}
+            style={{ position: 'relative', width: dispW, height: dispH, flexShrink: 0, margin: '0 auto', touchAction: 'none' }}
             onPointerMove={onMove}
             onPointerUp={endDrag}
             onPointerDown={onAddPoint}
