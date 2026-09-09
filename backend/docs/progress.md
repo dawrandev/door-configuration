@@ -23,8 +23,11 @@
 
 - Loyiha hozircha **dawran serverida** turadi, clientga ko'rsatiladi, keyin
   uning serveriga ko'chiriladi — uni client tomoni deploy qiladi.
-- Alohida subdomen: **`door.dbc-server.uz`**, document root `<papka>/public`.
-  Sub-yo'l (`/door/`) ishlamaydi: SPA `/api` ga mutlaq murojaat qiladi.
+- Subdomen: **`dawran.dbc-server.uz`** — uning **ildizi**, document root
+  `<papka>/public`. Sub-yo'l (`/door/`) ishlamaydi: SPA `/api` ga mutlaq
+  murojaat qiladi. Shu origin tanlandi, chunki eski verstakning localStorage
+  ma'lumoti unga bog'langan — boshqa subdomenda import tugmasi eski
+  eshiklarni topmasdi.
 - Shu sayt uchun PHP 8.2+ va MySQL yoqiladi.
 
 ## Ochiq savollar

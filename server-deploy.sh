@@ -6,7 +6,7 @@
 # The deploy branch carries the backend source with the built showroom already
 # in public/. Node never runs here; composer and php do.
 #
-#   cd /var/www/<user>/data/www/door.dbc-server.uz && bash server-deploy.sh
+#   cd /var/www/<user>/data/www/dawran.dbc-server.uz && bash server-deploy.sh
 #
 # ONE-TIME SETUP — see docs/deploy.md. In short: clone the branch, write .env,
 # point the site's document root at <folder>/public.

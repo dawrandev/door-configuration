@@ -19,39 +19,68 @@ bash deploy.sh
 
 ## Bir marta: server tayyorlash (FastPanel)
 
-1. **Subdomen yarating** — masalan `door.dbc-server.uz`. Nomi ahamiyatsiz;
-   bor subdomen ham bo'ladi. Yagona talab — ilova o'sha origin'ning
-   **ildizini** egallashi: document root shu ilovaning `public/` iga
-   qaraydi va o'sha subdomen ostida boshqa hech nima turmaydi.
-2. **PHP 8.2+** ni shu sayt uchun yoqing. Kerakli kengaytmalar Laravel 12
+Ilova **`dawran.dbc-server.uz` ning o'zi** bo'ladi — sub-yo'lda emas. Nomi
+ahamiyatsiz, lekin ildizni egallashi shart: SPA `/api` ga mutlaq murojaat
+qiladi.
+
+Shu subdomen tanlanganining yana bir sababi bor: eski verstak eshiklarni
+brauzerning localStorage'iga yozgan, u esa **origin'ga bog'langan**. Shu
+origin saqlanib qolgani uchun verstakdagi import tugmasi ularni topadi
+(8-qadam). Boshqa subdomenga ko'chsa, o'sha eshiklarga yetib bo'lmasdi.
+
+1. **PHP 8.2+** ni shu sayt uchun yoqing. Kerakli kengaytmalar Laravel 12
    standarti: `pdo_mysql`, `mbstring`, `openssl`, `tokenizer`, `xml`,
    `ctype`, `json`, `fileinfo`, `curl`.
-3. **MySQL bazasi** va foydalanuvchi yarating.
-4. **Kodni oling** (`deploy` branch — unda backend manbasi va qurilgan
-   showroom `public/` ichida turadi; `vendor`, `.env` va suratlar yo'q).
 
-   FastPanel subdomen yaratganda papkani o'zi yasaydi va ichiga placeholder
-   `index.html` qo'yadi, ya'ni papka bo'sh emas — `git clone` bunday papkaga
-   ishlamaydi. Shuning uchun klon emas, joyida `init` + `fetch`:
+2. **MySQL bazasi** va foydalanuvchi yarating. Nom, login, parolni yozib
+   qo'ying.
+
+3. **Kodni oling.** Papkada allaqachon eski statik saytning git repo'si
+   turadi, ya'ni `clone` kerak emas — `deploy` branch shunchaki qayta
+   o'qiladi:
 
    ```
-   cd /var/www/<user>/data/www/door.dbc-server.uz
+   cd /var/www/<user>/data/www/dawran.dbc-server.uz
+   git fetch origin deploy
+   git reset --hard origin/deploy
+   ```
+
+   Eski `index.html` va `assets/` o'z-o'zidan yo'qoladi: ular eski `deploy`
+   branch'da **kuzatilgan** fayllar edi, `reset --hard` esa kuzatilgan
+   fayllarni yangi holatga keltiradi. Suratlar (`storage/app/public/catalog`)
+   va `.env` kuzatilmaydi, shuning uchun tegilmaydi.
+
+   Papkada git repo bo'lmasa yoki bo'sh bo'lmagan boshqa papka bo'lsa:
+
+   ```
    git init -q
    git remote add origin https://github.com/dawrandev/door-configuration.git
    git fetch origin deploy
    git checkout -f -B deploy origin/deploy
    ```
 
-   Placeholder `index.html` shu bilan almashadi. Repo yopiq (private) bo'lsa
-   `fetch` parol so'raydi — GitHub'da Personal Access Token yasab, parol
-   o'rniga shuni bering.
+   Repo yopiq (private) bo'lsa `fetch` parol so'raydi — GitHub'da Personal
+   Access Token yasab, parol o'rniga shuni bering.
 
-5. **`.env` yozing** (`.env.example` dan nusxa oling) va shularni to'g'irlang:
+4. **Document root** ni `.../dawran.dbc-server.uz/public` ga qarating.
+
+   **Buni `.env` dan OLDIN bajaring.** Hozir document root papka ildiziga
+   qaragan; `.env` ni shu holatda yozsangiz u bir muddat internetdan
+   o'qiladigan joyda turadi. Root ko'chgach ildizdagi hech nima ko'rinmaydi.
+
+5. **`.env` yozing:**
+
+   ```
+   cp .env.example .env
+   nano .env
+   ```
+
+   O'zgartiriladigani:
 
    ```
    APP_ENV=production
    APP_DEBUG=false
-   APP_URL=https://door.dbc-server.uz
+   APP_URL=https://dawran.dbc-server.uz
 
    DB_DATABASE=<baza>
    DB_USERNAME=<foydalanuvchi>
@@ -63,11 +92,19 @@ bash deploy.sh
 
    So'ng: `php artisan key:generate`
 
-6. **Document root** ni `.../door.dbc-server.uz/public` ga qarating.
-   Bu majburiy: ildizga qaratilsa `.env` va butun manba internetdan
-   o'qiladi.
-7. **Birinchi deploy:** `bash server-deploy.sh`
-8. **Verstak parolini almashtiring:** `php artisan bench:password`
+6. **Birinchi deploy:** `bash server-deploy.sh`
+
+7. **Verstak parolini almashtiring:** `php artisan bench:password`
+
+8. **Eski eshiklarni ko'chirib oling.** Verstakka — **o'sha eski eshiklarni
+   qo'shgan brauzerdan** — kiring. localStorage'da eski ma'lumot bo'lsa
+   import tugmasi o'zi ko'rinadi va nechta yozuv borligini aytadi. Bosilgach
+   hammasi API orqali qayta nashr qilinadi.
+
+   Eski yozuvlar **o'chirilmaydi**, va tugma bir martadan keyin qaytib
+   chiqmaydi (`dc.imported.v1`). Boshqa brauzerda boshqa eshiklar bo'lsa,
+   o'sha brauzerda ham bir marta bosing.
+
 
 ## Har safar
 
@@ -80,7 +117,7 @@ bash deploy.sh
 Serverda:
 
 ```
-cd /var/www/<user>/data/www/door.dbc-server.uz && bash server-deploy.sh
+cd /var/www/<user>/data/www/dawran.dbc-server.uz && bash server-deploy.sh
 ```
 
 Bu asosiy yo'l. `.github/workflows/deploy.yml` xuddi shu ikkalasini `main` ga
@@ -111,7 +148,7 @@ cat ~/.ssh/gh_deploy          # MAXFIY kalit — to'liq matnini ko'chirib oling
 | `SSH_HOST` | server IP yoki hostname |
 | `SSH_USER` | yuqoridagi kalit tegishli foydalanuvchi |
 | `SSH_KEY` | `~/.ssh/gh_deploy` ning **to'liq** matni (`-----BEGIN` dan `-----END` gacha) |
-| `DEPLOY_PATH` | `/var/www/<user>/data/www/door.dbc-server.uz` |
+| `DEPLOY_PATH` | `/var/www/<user>/data/www/dawran.dbc-server.uz` |
 
 Ixtiyoriy: `SSH_PORT` (22 emas bo'lsa), `SSH_KNOWN_HOSTS` (host kalitini
 qotirish uchun; qo'yilmasa birinchi ulanishda serverning kalitiga ishoniladi).
