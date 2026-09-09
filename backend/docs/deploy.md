@@ -19,7 +19,10 @@ bash deploy.sh
 
 ## Bir marta: server tayyorlash (FastPanel)
 
-1. **Subdomen yarating** — masalan `door.dbc-server.uz`.
+1. **Subdomen yarating** — masalan `door.dbc-server.uz`. Nomi ahamiyatsiz;
+   bor subdomen ham bo'ladi. Yagona talab — ilova o'sha origin'ning
+   **ildizini** egallashi: document root shu ilovaning `public/` iga
+   qaraydi va o'sha subdomen ostida boshqa hech nima turmaydi.
 2. **PHP 8.2+** ni shu sayt uchun yoqing. Kerakli kengaytmalar Laravel 12
    standarti: `pdo_mysql`, `mbstring`, `openssl`, `tokenizer`, `xml`,
    `ctype`, `json`, `fileinfo`, `curl`.
