@@ -6,7 +6,11 @@ import { ApiError } from '../api/http';
 import {
   Panel, PanelBody, PanelFooter, Label, Section, inp, AdminPrimaryButton, Seg, Handle, Pad, DANGER, useToast, ROLE_ORDER, ROLE_META, RoleChip, MoveResize, TRACE, TraceShape, Loupe,
 } from './adminKit';
-import { bboxOfPoints, seedPoints, defaultRectFor, nearestLoop, toStoredTrim, toTrimState, type TrimPieceState } from './trimGeometry';
+import {
+  bboxOfPoints, seedPoints, defaultRectFor, nearestLoop, insertIndexForPoint,
+  authoredHalf, symmetrise, toSymmetric,
+  toStoredTrim, toTrimState, type Point, type TrimPieceState,
+} from './trimGeometry';
 import type { TrimRole } from '../catalog/types';
 
 /** Downscale an image to a compact JPEG data URL for storage/re-editing. */
@@ -158,6 +162,29 @@ export function TrimBench({ onDone, edit }: { onDone: () => void; edit?: AdminTr
     const r = trimWrapRef.current!.getBoundingClientRect();
     return { x: Math.min(Math.max(0, (cx - r.left) / r.width), 1), y: Math.min(Math.max(0, (cy - r.top) / r.height), 1) };
   }, []);
+  /** The opening's own centre line — what a crown above it is centred on, and
+   *  so the axis it is symmetric about. */
+  const mirrorAxis = openRef.x + openRef.w / 2;
+
+  /** Rewrite a piece's outer loop from its authored half. The half is the only
+   *  source of truth in mirror mode, so the two sides cannot drift apart. */
+  const rebuildMirrored = (t: TrimPieceState, half: Point[]): TrimPieceState => {
+    const points = symmetrise(half, mirrorAxis);
+    return { ...t, points, rect: bboxOfPoints(points) };
+  };
+
+  /** Switching ON rewrites the outline, so it refuses rather than guesses when
+   *  the trace crosses the axis more than twice and has no single half. */
+  const toggleMirror = (trimId: string) => {
+    setTrim((ts) => ts.map((t) => {
+      if (t.id !== trimId) return t;
+      if (t.mirror) return { ...t, mirror: false };
+      const sym = toSymmetric(t.points, mirrorAxis);
+      if (!sym) { toast('Bu konturni ko‘zgu qilib bo‘lmaydi — u markaz chizig‘ini ikki martadan ko‘p kesib o‘tadi'); return t; }
+      return { ...t, mirror: true, points: sym, rect: bboxOfPoints(sym) };
+    }));
+  };
+
   const onTrimMove = (e: React.PointerEvent) => {
     if (!trimDrag.current) return;
     const { trimId, loop, index } = trimDrag.current;
@@ -165,6 +192,13 @@ export function TrimBench({ onDone, edit }: { onDone: () => void; edit?: AdminTr
     setTrimLens({ x: p.x * tDispW, y: p.y * tDispH });
     setTrim((ts) => ts.map((t) => {
       if (t.id !== trimId) return t;
+      if (t.mirror && loop === 'points') {
+        // Clamped to the authored side: past the axis and the left run would
+        // no longer lead, which is the invariant the pairing rests on.
+        const half = authoredHalf(t.points, mirrorAxis);
+        if (index >= half.length) return t;
+        return rebuildMirrored(t, half.map((pt, i) => (i === index ? { ...p, x: Math.min(p.x, mirrorAxis) } : pt)));
+      }
       const source = t[loop] ?? [];
       const updated = source.map((pt, i) => (i === index ? p : pt));
       return loop === 'points' ? { ...t, points: updated, rect: bboxOfPoints(updated) } : { ...t, holePoints: updated };
@@ -188,6 +222,12 @@ export function TrimBench({ onDone, edit }: { onDone: () => void; edit?: AdminTr
     setTrim((ts) => ts.map((t) => {
       const source = t[loop];
       if (t.id !== trimId || !source || source.length <= 3) return t;
+      if (t.mirror && loop === 'points') {
+        // Two in the half rebuilds to four, the fewest an outline may have.
+        const half = authoredHalf(t.points, mirrorAxis);
+        if (index >= half.length || half.length <= 2) return t;
+        return rebuildMirrored(t, half.filter((_, i) => i !== index));
+      }
       const updated = source.filter((_, i) => i !== index);
       return loop === 'points' ? { ...t, points: updated, rect: bboxOfPoints(updated) } : { ...t, holePoints: updated };
     }));
@@ -212,6 +252,19 @@ export function TrimBench({ onDone, edit }: { onDone: () => void; edit?: AdminTr
     const active = trim.find((t) => t.id === activeTrimId);
     if (!active) return;
     const p = toTrimFrac(e.clientX, e.clientY);
+    // A press on the generated side is folded across the axis rather than
+    // ignored: aiming at the right half is a reasonable thing to do.
+    if (active.mirror) {
+      const half = authoredHalf(active.points, mirrorAxis);
+      const q = { x: Math.min(p.x, mirrorAxis * 2 - p.x, mirrorAxis), y: p.y };
+      const at = insertIndexForPoint(half, q);
+      setTrim((ts) => ts.map((t) => (t.id === active.id
+        ? rebuildMirrored(t, [...half.slice(0, at), q, ...half.slice(at)])
+        : t)));
+      (e.target as Element).setPointerCapture(e.pointerId);
+      trimDrag.current = { trimId: active.id, loop: 'points', index: at };
+      return;
+    }
     const { loop, index: idx } = nearestLoop(active, p);
     setTrim((ts) => ts.map((t) => {
       if (t.id !== active.id) return t;
@@ -309,6 +362,13 @@ export function TrimBench({ onDone, edit }: { onDone: () => void; edit?: AdminTr
                   reference so it's clear where the "door" would sit and the
                   revealed casing begins. */}
               <rect x={openRef.x * tDispW} y={openRef.y * tDispH} width={openRef.w * tDispW} height={openRef.h * tDispH} fill="none" stroke={COLOR.lineStrong} strokeDasharray="5 4" strokeWidth={1.5} />
+              {/* The axis the mirror reflects about, drawn only while in use. */}
+              {activeTrim!.mirror && (
+                <line
+                  x1={mirrorAxis * tDispW} y1={0} x2={mirrorAxis * tDispW} y2={tDispH}
+                  stroke={ROLE_META[activeTrim!.role].color} strokeDasharray="3 5" strokeWidth={1} opacity={0.7}
+                />
+              )}
               <TraceShape
                 points={activeTrim!.points}
                 holePoints={activeTrim!.holePoints}
@@ -317,7 +377,9 @@ export function TrimBench({ onDone, edit }: { onDone: () => void; edit?: AdminTr
                 h={tDispH}
               />
             </svg>
-            {activeTrim!.points.map((p, i) => (
+            {/* In mirror mode only the authored half gets handles — the other
+                side is recomputed from these on every edit. */}
+            {(activeTrim!.mirror ? authoredHalf(activeTrim!.points, mirrorAxis) : activeTrim!.points).map((p, i) => (
               <Handle
                 key={`o${i}`}
                 x={p.x * tDispW}
@@ -413,6 +475,26 @@ export function TrimBench({ onDone, edit }: { onDone: () => void; edit?: AdminTr
                               <input type="checkbox" checked={!!t.holePoints} onChange={() => toggleTrimHole(t.id)} />
                               Ichki chegarani ham (qo‘lda) belgilash
                             </label>
+
+                            {/* Offered where the piece really is centred on the
+                                opening: a crown is, a single side casing is
+                                not. A piece with a hole is left out — only the
+                                outer loop is mirrored, and half a mirrored
+                                piece would be worse than none. */}
+                            {t.role === 'crown' && !t.holePoints && (
+                              <>
+                                <label style={{ display: 'flex', alignItems: 'center', gap: 8, minHeight: 44, marginTop: 6, fontSize: 12, color: COLOR.ink, cursor: 'pointer' }}>
+                                  <input type="checkbox" checked={!!t.mirror} onChange={() => toggleMirror(t.id)} />
+                                  Simmetrik — chap yarmini chizaman
+                                </label>
+                                {t.mirror && (
+                                  <div style={{ fontSize: 11, color: COLOR.inkSoft, lineHeight: 1.5, paddingLeft: 26 }}>
+                                    O‘ng tarafi markaz chizig‘iga nisbatan o‘zi chiziladi.
+                                    {' '}Chapdagi {authoredHalf(t.points, mirrorAxis).length} ta nuqta bilan ishlaysiz.
+                                  </div>
+                                )}
+                              </>
+                            )}
 
                             <div style={{ marginTop: 8 }}>
                               <MoveResize onMove={(dx, dy) => nudgeTrimPiece(t.id, dx, dy)} onSize={() => {}} sizeless />

@@ -4,7 +4,11 @@ import { processRoom, type Rect } from './roomProcess';
 import { publishRoom, dataUrlToBlob, type AdminRoom } from '../api/catalog';
 import { ApiError } from '../api/http';
 import { Panel, PanelBody, PanelFooter, Label, Section, inp, AdminPrimaryButton, Handle, DimHUD, DANGER, useToast, ROLE_ORDER, ROLE_META, RoleChip, MoveResize, TRACE, TraceShape, Loupe } from './adminKit';
-import { bboxOfPoints, seedPoints, defaultRectFor, nearestLoop, toStoredTrim, toTrimState, type Point, type TrimPieceState } from './trimGeometry';
+import {
+  bboxOfPoints, seedPoints, defaultRectFor, nearestLoop, insertIndexForPoint,
+  authoredHalf, symmetrise, toSymmetric,
+  toStoredTrim, toTrimState, type Point, type TrimPieceState,
+} from './trimGeometry';
 import { recolorTrim } from '../render/recolor';
 import type { Tint } from '../catalog/colors';
 import type { Room, TrimPiece, TrimRole } from '../catalog/types';
@@ -188,6 +192,29 @@ export function RoomBench({ onDone, edit }: { onDone: () => void; edit?: AdminRo
     },
     []
   );
+  /** The doorway's own centre line — what a crown above it is centred on, and
+   *  so the axis it is symmetric about. */
+  const mirrorAxis = box ? box.x + box.w / 2 : 0.5;
+
+  /** Rewrite a piece's outer loop from its authored half. The half is the only
+   *  source of truth in mirror mode, so the two sides cannot drift apart. */
+  const rebuildMirrored = (t: TrimPieceState, half: Point[]): TrimPieceState => {
+    const points = symmetrise(half, mirrorAxis);
+    return { ...t, points, rect: bboxOfPoints(points) };
+  };
+
+  /** Switching ON rewrites the outline, so it refuses rather than guesses when
+   *  the trace crosses the axis more than twice and has no single half. */
+  const toggleMirror = (trimId: string) => {
+    setTrim((ts) => ts.map((t) => {
+      if (t.id !== trimId) return t;
+      if (t.mirror) return { ...t, mirror: false };
+      const sym = toSymmetric(t.points, mirrorAxis);
+      if (!sym) { toast('Bu konturni ko‘zgu qilib bo‘lmaydi — u markaz chizig‘ini ikki martadan ko‘p kesib o‘tadi'); return t; }
+      return { ...t, mirror: true, points: sym, rect: bboxOfPoints(sym) };
+    }));
+  };
+
   const onMove = (e: React.PointerEvent) => {
     if (!drag.current) return;
     const p = toFrac(e.clientX, e.clientY);
@@ -200,6 +227,13 @@ export function RoomBench({ onDone, edit }: { onDone: () => void; edit?: AdminRo
       const cx = Math.min(Math.max(0, p.x), 1), cy = Math.min(Math.max(0, p.y), 1);
       setTrim((ts) => ts.map((t) => {
         if (t.id !== trimId) return t;
+        if (t.mirror && loop === 'points') {
+          // Clamped to the authored side: past the axis and the left run would
+          // no longer lead, which is the invariant the pairing rests on.
+          const half = authoredHalf(t.points, mirrorAxis);
+          if (index >= half.length) return t;
+          return rebuildMirrored(t, half.map((pt, i) => (i === index ? { x: Math.min(cx, mirrorAxis), y: cy } : pt)));
+        }
         // ONLY this one point moves — every other point of the outline stays
         // exactly where it was, which is the entire point of a free polygon
         // over a rectangle's coupled opposite-corner behaviour.
@@ -255,6 +289,12 @@ export function RoomBench({ onDone, edit }: { onDone: () => void; edit?: AdminRo
     setTrim((ts) => ts.map((t) => {
       const source = t[loop];
       if (t.id !== trimId || !source || source.length <= 3) return t;
+      if (t.mirror && loop === 'points') {
+        // Two in the half rebuilds to four, the fewest an outline may have.
+        const half = authoredHalf(t.points, mirrorAxis);
+        if (index >= half.length || half.length <= 2) return t;
+        return rebuildMirrored(t, half.filter((_, i) => i !== index));
+      }
       const updated = source.filter((_, i) => i !== index);
       return loop === 'points' ? { ...t, points: updated, rect: bboxOfPoints(updated) } : { ...t, holePoints: updated };
     }));
@@ -276,6 +316,19 @@ export function RoomBench({ onDone, edit }: { onDone: () => void; edit?: AdminRo
     if (!active) return;
     const p = toFrac(e.clientX, e.clientY);
     const cx = Math.min(Math.max(0, p.x), 1), cy = Math.min(Math.max(0, p.y), 1);
+    // A press on the generated side is folded across the axis rather than
+    // ignored: aiming at the right half is a reasonable thing to do.
+    if (active.mirror) {
+      const half = authoredHalf(active.points, mirrorAxis);
+      const q = { x: Math.min(cx, mirrorAxis * 2 - cx, mirrorAxis), y: cy };
+      const at = insertIndexForPoint(half, q);
+      setTrim((ts) => ts.map((t) => (t.id === active.id
+        ? rebuildMirrored(t, [...half.slice(0, at), q, ...half.slice(at)])
+        : t)));
+      (e.target as Element).setPointerCapture(e.pointerId);
+      drag.current = { kind: 'point', trimId: active.id, loop: 'points', index: at };
+      return;
+    }
     const { loop, index: idx } = nearestLoop(active, { x: cx, y: cy });
     setTrim((ts) => ts.map((t) => {
       if (t.id !== active.id) return t;
@@ -424,6 +477,13 @@ export function RoomBench({ onDone, edit }: { onDone: () => void; edit?: AdminRo
                     fill, so it reads as "a hole in this piece" and leaves the
                     photograph underneath it untouched. */}
                 <svg style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', pointerEvents: 'none' }}>
+                  {/* The axis the mirror reflects about, drawn only while in use. */}
+                  {activeTrim.mirror && (
+                    <line
+                      x1={mirrorAxis * dispW} y1={0} x2={mirrorAxis * dispW} y2={dispH}
+                      stroke={ROLE_META[activeTrim.role].color} strokeDasharray="3 5" strokeWidth={1} opacity={0.7}
+                    />
+                  )}
                   <TraceShape
                     points={activeTrim.points}
                     holePoints={activeTrim.holePoints}
@@ -432,7 +492,9 @@ export function RoomBench({ onDone, edit }: { onDone: () => void; edit?: AdminRo
                     h={dispH}
                   />
                 </svg>
-                {activeTrim.points.map((p, i) => (
+                {/* In mirror mode only the authored half gets handles — the
+                    other side is recomputed from these on every edit. */}
+                {(activeTrim.mirror ? authoredHalf(activeTrim.points, mirrorAxis) : activeTrim.points).map((p, i) => (
                   <Handle
                     key={`o${i}`}
                     x={p.x * dispW}
@@ -557,6 +619,25 @@ export function RoomBench({ onDone, edit }: { onDone: () => void; edit?: AdminRo
                               <input type="checkbox" checked={!!t.holePoints} onChange={() => toggleHole(t.id)} />
                               Ichki chegarani ham (qo‘lda) belgilash
                             </label>
+
+                            {/* Offered where the piece really is centred on the
+                                doorway: a crown is, a single side casing is
+                                not. A piece with a hole is left out — only the
+                                outer loop is mirrored. */}
+                            {t.role === 'crown' && !t.holePoints && (
+                              <>
+                                <label style={{ display: 'flex', alignItems: 'center', gap: 8, minHeight: TOUCH_MIN, marginTop: 6, fontSize: 12, color: COLOR.ink, cursor: 'pointer' }}>
+                                  <input type="checkbox" checked={!!t.mirror} onChange={() => toggleMirror(t.id)} />
+                                  Simmetrik — chap yarmini chizaman
+                                </label>
+                                {t.mirror && (
+                                  <div style={{ fontSize: 11, color: COLOR.inkSoft, lineHeight: 1.5, paddingLeft: 26 }}>
+                                    O‘ng tarafi markaz chizig‘iga nisbatan o‘zi chiziladi.
+                                    {' '}Chapdagi {authoredHalf(t.points, mirrorAxis).length} ta nuqta bilan ishlaysiz.
+                                  </div>
+                                )}
+                              </>
+                            )}
                             {t.holePoints && (
                               <div style={{ fontSize: 11, color: COLOR.inkSoft, lineHeight: 1.5, marginBottom: 6 }}>
                                 Kesilgan chiziq — nalichnikning eshikka qaragan ICHKI cheti. Xuddi

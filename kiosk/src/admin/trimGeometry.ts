@@ -29,6 +29,10 @@ export interface TrimPieceState {
   /** An optional, separately hand-traced inner edge — a cutout, for a piece
    *  shaped like a ring (the shaft, almost always). */
   holePoints?: Point[];
+  /** Author one half and mirror the other. An editing mode, not a property of
+   *  the piece: `points` still holds the whole outline, so nothing that reads
+   *  a stored piece needs to know, and `toStoredTrim` drops this. */
+  mirror?: boolean;
 }
 
 /** The smallest rect containing every point — `points`' bounding box. */
@@ -49,6 +53,114 @@ export function seedPoints(rect: Rect): Point[] {
     { x: rect.x + rect.w, y: rect.y + rect.h },
     { x: rect.x, y: rect.y + rect.h },
   ];
+}
+
+/*
+ * Mirror symmetry.
+ *
+ * A korona is a moulding centred over the door: it IS symmetric, and the four
+ * corners have already squared the photograph up, so it should be symmetric in
+ * the picture too. Tracing both halves by hand is twice the work and never
+ * lands — measured on one real trace, the two sides mirrored to within 1–5px
+ * on an 1853px canvas, which is the hand, not the moulding.
+ *
+ * So one half is authored and the other is generated. Nothing downstream
+ * learns about it: `points` always holds the WHOLE outline, and a symmetric
+ * piece is stored, validated and rendered exactly like any other.
+ */
+
+/** How close to the axis counts as "on it" — such a point is its own mirror
+ *  and must not be duplicated. */
+const AXIS_EPS = 1e-4;
+
+/** Reflect a point across the vertical line x = axis. */
+export const mirrorPoint = (p: Point, axis: number): Point => ({ x: 2 * axis - p.x, y: p.y });
+
+/**
+ * The canonical form of a symmetric outline: the authored half, then that half
+ * reversed and reflected.
+ *
+ * Reversed, because a polygon is a loop — appending the mirror in the same
+ * order would run back over itself and cross. Reversed, the outline goes down
+ * one side and back up the other, which is the shape a crown actually is.
+ *
+ * The half is always the LEFT one, so the leading run of the result is always
+ * the authored part. That invariant is what lets the editor show handles for
+ * indices 0..half-1 and rebuild from them, with no pairing to keep in step.
+ */
+export function symmetrise(half: Point[], axis: number): Point[] {
+  const mirrored = half
+    .slice()
+    .reverse()
+    .filter((p) => Math.abs(p.x - axis) > AXIS_EPS)
+    .map((p) => mirrorPoint(p, axis));
+  return [...half, ...mirrored];
+}
+
+/** The authored half of a canonical symmetric outline — the leading run of
+ *  points at or left of the axis. */
+export function authoredHalf(points: Point[], axis: number): Point[] {
+  const end = points.findIndex((p) => p.x > axis + AXIS_EPS);
+  return end === -1 ? points : points.slice(0, end);
+}
+
+/**
+ * Rotate an outline so its left-hand points lead, which is what everything
+ * above assumes.
+ *
+ * A loop has no first point, and where a trace happens to have started is
+ * arbitrary — `seedPoints` begins at the top-LEFT and runs clockwise, so its
+ * two left points end up at indices 0 and 3, split across the ends of the
+ * array even though they are neighbours on the loop.
+ *
+ * Null when the left points are not one run around the loop: an outline that
+ * crosses the axis more than twice has no "half" to author, and mirroring it
+ * would mean guessing which crossing was meant.
+ */
+export function rotateToLeftRun(points: Point[], axis: number): Point[] | null {
+  const isLeft = points.map((p) => p.x <= axis + AXIS_EPS);
+  const n = points.length;
+  if (isLeft.every(Boolean) || !isLeft.some(Boolean)) return null;
+  // Exactly one place where a right point is followed by a left one — any more
+  // and the loop crosses the axis more than twice.
+  const starts = points.map((_, i) => i).filter((i) => isLeft[i] && !isLeft[(i - 1 + n) % n]);
+  if (starts.length !== 1) return null;
+  const s = starts[0];
+  return [...points.slice(s), ...points.slice(0, s)];
+}
+
+/**
+ * Is this outline already a mirror of itself about the axis?
+ *
+ * Used to reopen a symmetric piece back in symmetric mode rather than making
+ * the operator notice and switch it on again. Deliberately exact-ish: this
+ * asks "was this authored symmetrically", not "is this roughly symmetric",
+ * because turning the mode on rewrites the outline and a hand-traced near-miss
+ * would be silently altered.
+ */
+export function isSymmetric(points: Point[], axis: number, eps = 1e-3): boolean {
+  if (points.length < 4) return false;
+  const turned = rotateToLeftRun(points, axis);
+  if (!turned) return false;
+  const half = authoredHalf(turned, axis);
+  if (half.length < 2) return false;
+  const rebuilt = symmetrise(half, axis);
+  return rebuilt.length === turned.length
+    && rebuilt.every((p, i) => Math.abs(p.x - turned[i].x) < eps && Math.abs(p.y - turned[i].y) < eps);
+}
+
+/**
+ * An outline put into symmetric form: rotated so the left half leads, then
+ * rebuilt from that half. This is what switching the mode on does.
+ *
+ * Null when the outline has no single left run to author from — the caller
+ * says so rather than silently mirroring about a crossing nobody chose.
+ */
+export function toSymmetric(points: Point[], axis: number): Point[] | null {
+  const turned = rotateToLeftRun(points, axis);
+  if (!turned) return null;
+  const half = authoredHalf(turned, axis);
+  return half.length >= 2 ? symmetrise(half, axis) : null;
 }
 
 /** Perpendicular distance from p to the segment a–b (clamped to the segment). */

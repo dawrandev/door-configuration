@@ -1,7 +1,9 @@
 import { describe, expect, it } from 'vitest';
 import {
-  bboxOfPoints, defaultRectFor, distToSegment, insertIndexForPoint,
-  nearestLoop, seedPoints, toStoredTrim, toTrimState, type TrimPieceState,
+  authoredHalf, bboxOfPoints, defaultRectFor, distToSegment, insertIndexForPoint,
+  isSymmetric, mirrorPoint, nearestLoop, rotateToLeftRun, seedPoints,
+  symmetrise, toSymmetric,
+  toStoredTrim, toTrimState, type Point, type TrimPieceState,
 } from './trimGeometry';
 
 /**
@@ -198,5 +200,99 @@ describe('defaultRectFor', () => {
       expect(out.w).toBeGreaterThan(0);
       expect(out.h).toBeGreaterThan(0);
     }
+  });
+});
+
+/**
+ * Mirror symmetry — one half authored, the other generated.
+ *
+ * The index maths is where this would go wrong quietly: a mirror partner found
+ * one place off drags the wrong handle, and the outline only looks wrong once
+ * it is published.
+ */
+describe('symmetry', () => {
+  const AX = 0.5;
+  /** A crown's left half: along the top, down the moulding, out to the foot. */
+  const half: Point[] = [
+    { x: 0.10, y: 0.05 },
+    { x: 0.18, y: 0.14 },
+    { x: 0.22, y: 0.30 },
+    { x: 0.22, y: 0.60 },
+  ];
+
+  it('reflects a point across the axis', () => {
+    expect(mirrorPoint({ x: 0.2, y: 0.4 }, 0.5)).toEqual({ x: 0.8, y: 0.4 });
+    // A point ON the axis is its own reflection.
+    expect(mirrorPoint({ x: 0.5, y: 0.4 }, 0.5)).toEqual({ x: 0.5, y: 0.4 });
+  });
+
+  it('closes the loop by reversing the mirrored half', () => {
+    const full = symmetrise(half, AX);
+    expect(full).toHaveLength(8);
+    // The authored half leads, unchanged.
+    expect(full.slice(0, 4)).toEqual(half);
+    // The tail runs BACK up the other side: the last authored point mirrors to
+    // the first generated one. Appended in the same order it would cross over
+    // itself instead of closing.
+    expect(full[4]).toEqual({ x: 0.78, y: 0.60 });
+    expect(full[7]).toEqual({ x: 0.90, y: 0.05 });
+  });
+
+  it('never duplicates a point that sits on the axis', () => {
+    const withApex = [...half, { x: AX, y: 0.02 }];
+    const full = symmetrise(withApex, AX);
+    expect(full).toHaveLength(9);
+    expect(full.filter((p) => Math.abs(p.x - AX) < 1e-9)).toHaveLength(1);
+  });
+
+  it('reads the authored half back out of the whole outline', () => {
+    expect(authoredHalf(symmetrise(half, AX), AX)).toEqual(half);
+  });
+
+  it('recognises an outline it built, and refuses one it did not', () => {
+    const full = symmetrise(half, AX);
+    expect(isSymmetric(full, AX)).toBe(true);
+    // A hand-traced near-miss must NOT be treated as symmetric: switching the
+    // mode on rewrites the outline, and doing that silently would move points
+    // the operator placed deliberately.
+    const nudged = full.map((p, i) => (i === 6 ? { x: p.x + 0.01, y: p.y } : p));
+    expect(isSymmetric(nudged, AX)).toBe(false);
+    // A plain rectangle is symmetric about its own centre, even though
+    // seedPoints starts at the top-LEFT and so splits its two left points
+    // across the ends of the array.
+    expect(isSymmetric(seedPoints({ x: 0.2, y: 0.1, w: 0.6, h: 0.4 }), 0.5)).toBe(true);
+  });
+
+  it('rotates an arbitrary starting point onto the left run', () => {
+    const box = seedPoints({ x: 0.2, y: 0.1, w: 0.6, h: 0.4 });
+    const turned = rotateToLeftRun(box, 0.5)!;
+    expect(turned.slice(0, 2).every((p) => p.x <= 0.5)).toBe(true);
+    expect(turned).toHaveLength(box.length);
+  });
+
+  it('refuses an outline that crosses the axis more than twice', () => {
+    // A zig-zag: left, right, left, right. There is no single half to author.
+    const zig = [
+      { x: 0.1, y: 0.1 }, { x: 0.9, y: 0.2 },
+      { x: 0.1, y: 0.3 }, { x: 0.9, y: 0.4 },
+    ];
+    expect(rotateToLeftRun(zig, 0.5)).toBeNull();
+    expect(toSymmetric(zig, 0.5)).toBeNull();
+    expect(isSymmetric(zig, 0.5)).toBe(false);
+  });
+
+  it('makes a hand-traced near-miss exactly symmetric', () => {
+    const full = symmetrise(half, AX);
+    const wobbly = full.map((p, i) => (i === 6 ? { x: p.x + 0.01, y: p.y - 0.004 } : p));
+    expect(isSymmetric(wobbly, AX)).toBe(false);
+    const fixed = toSymmetric(wobbly, AX)!;
+    expect(isSymmetric(fixed, AX)).toBe(true);
+    // The authored half is what survives; the wobble was on the generated side.
+    expect(authoredHalf(fixed, AX)).toEqual(half);
+  });
+
+  it('is idempotent, so reopening a symmetric piece changes nothing', () => {
+    const full = symmetrise(half, AX);
+    expect(symmetrise(authoredHalf(full, AX), AX)).toEqual(full);
   });
 });

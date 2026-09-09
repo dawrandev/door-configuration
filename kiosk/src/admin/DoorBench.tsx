@@ -10,7 +10,11 @@ import type { DoorColor } from '../catalog/colors';
 import {
   Panel, PanelBody, PanelFooter, Label, Section, inp, AdminPrimaryButton, AdminGhostButton, Seg, Pad, Handle, DANGER, useToast, ROLE_ORDER, ROLE_META, RoleChip, MoveResize, TRACE, TraceShape, Loupe,
 } from './adminKit';
-import { bboxOfPoints, seedPoints, defaultRectFor, nearestLoop, insertIndexForPoint, toStoredTrim, toTrimState, type Point, type TrimPieceState } from './trimGeometry';
+import {
+  bboxOfPoints, seedPoints, defaultRectFor, nearestLoop, insertIndexForPoint,
+  authoredHalf, symmetrise, toSymmetric, isSymmetric,
+  toStoredTrim, toTrimState, type Point, type TrimPieceState,
+} from './trimGeometry';
 import { maskTrim, useRender } from '../render/recolor';
 import type { TrimPiece, TrimRole } from '../catalog/types';
 
@@ -433,7 +437,17 @@ export function DoorBench({ onDone, edit }: { onDone: () => void; edit?: AdminLe
               { x: el.width * 0.28, y: el.height * 0.92 },
             ]) as [Pt, Pt, Pt, Pt];
         const was = (nal ?? kor)!.trimMargin;
-        setTrim(remapPieces(stored, was, photoMargin(el, quad)));
+        const now = photoMargin(el, quad);
+        // A crown that was authored symmetrically reopens that way, rather
+        // than making the operator notice and switch the mode on again. Only
+        // an exact mirror qualifies — see isSymmetric on why a near-miss must
+        // not be adopted and silently straightened.
+        const axis = (now.left + 0.5) / (1 + now.left + now.right);
+        setTrim(remapPieces(stored, was, now).map((t) => (
+          t.role === 'crown' && !t.holePoints && isSymmetric(t.points, axis)
+            ? { ...t, mirror: true }
+            : t
+        )));
       }
       // Last: everything this door had is now in the form, so it can be edited.
       setLoadingEdit(false);
@@ -639,6 +653,23 @@ export function DoorBench({ onDone, edit }: { onDone: () => void; edit?: AdminLe
     const r = trimWrapRef.current!.getBoundingClientRect();
     return { x: Math.min(Math.max(0, (cx - r.left) / r.width), 1), y: Math.min(Math.max(0, (cy - r.top) / r.height), 1) };
   }, []);
+  /** The door's own centre line within the padded canvas — the axis a crown is
+   *  symmetric about, because that is what it is centred on. */
+  const mirrorAxis = leafRef.x + leafRef.w / 2;
+
+  /**
+   * Rewrite a piece's outer loop from its authored half.
+   *
+   * Every edit in mirror mode goes through here: the half is changed, then the
+   * whole outline is rebuilt from it. Keeping only the half as the source of
+   * truth is what makes the two sides impossible to drift apart — there is no
+   * second copy to keep in step.
+   */
+  const rebuildMirrored = (t: TrimPieceState, half: Point[]): TrimPieceState => {
+    const points = symmetrise(half, mirrorAxis);
+    return { ...t, points, rect: bboxOfPoints(points) };
+  };
+
   const onTrimMove = (e: React.PointerEvent) => {
     if (!trimDrag.current) return;
     const { trimId, loop, index } = trimDrag.current;
@@ -646,9 +677,33 @@ export function DoorBench({ onDone, edit }: { onDone: () => void; edit?: AdminLe
     setTrimLens({ x: p.x * tDispW, y: p.y * tDispH });
     setTrim((ts) => ts.map((t) => {
       if (t.id !== trimId) return t;
+      if (t.mirror && loop === 'points') {
+        // Clamped to the authored side: a handle dragged past the axis would
+        // break the invariant that the left run leads, and with it the pairing.
+        const half = authoredHalf(t.points, mirrorAxis);
+        if (index >= half.length) return t;
+        return rebuildMirrored(t, half.map((pt, i) => (i === index ? { ...p, x: Math.min(p.x, mirrorAxis) } : pt)));
+      }
       const source = t[loop] ?? [];
       const updated = source.map((pt, i) => (i === index ? p : pt));
       return loop === 'points' ? { ...t, points: updated, rect: bboxOfPoints(updated) } : { ...t, holePoints: updated };
+    }));
+  };
+
+  /**
+   * Turn symmetry on or off for one piece.
+   *
+   * Switching ON rewrites the outline, so it refuses rather than guesses when
+   * the trace has no single left half to author from — an outline that crosses
+   * the axis more than twice has no "one side" to mirror.
+   */
+  const toggleMirror = (trimId: string) => {
+    setTrim((ts) => ts.map((t) => {
+      if (t.id !== trimId) return t;
+      if (t.mirror) return { ...t, mirror: false };
+      const sym = toSymmetric(t.points, mirrorAxis);
+      if (!sym) { toast('Bu konturni ko‘zgu qilib bo‘lmaydi — u markaz chizig‘ini ikki martadan ko‘p kesib o‘tadi'); return t; }
+      return { ...t, mirror: true, points: sym, rect: bboxOfPoints(sym) };
     }));
   };
   const addTrimPiece = (role: TrimRole) => {
@@ -681,6 +736,13 @@ export function DoorBench({ onDone, edit }: { onDone: () => void; edit?: AdminLe
     setTrim((ts) => ts.map((t) => {
       const source = t[loop];
       if (t.id !== trimId || !source || source.length <= 3) return t;
+      if (t.mirror && loop === 'points') {
+        // Two in the half is the floor: it rebuilds to four, which is the
+        // fewest an outline is allowed.
+        const half = authoredHalf(t.points, mirrorAxis);
+        if (index >= half.length || half.length <= 2) return t;
+        return rebuildMirrored(t, half.filter((_, i) => i !== index));
+      }
       const updated = source.filter((_, i) => i !== index);
       return loop === 'points' ? { ...t, points: updated, rect: bboxOfPoints(updated) } : { ...t, holePoints: updated };
     }));
@@ -705,6 +767,20 @@ export function DoorBench({ onDone, edit }: { onDone: () => void; edit?: AdminLe
     const active = trim.find((t) => t.id === activeTrimId);
     if (!active) return;
     const p = toTrimFrac(e.clientX, e.clientY);
+    // In mirror mode a point is authored on the LEFT half and its twin comes
+    // for free, so a press on the right side is folded across the axis rather
+    // than ignored — pressing the generated side is a reasonable thing to do.
+    if (active.mirror) {
+      const half = authoredHalf(active.points, mirrorAxis);
+      const q = { x: Math.min(p.x, mirrorAxis * 2 - p.x, mirrorAxis), y: p.y };
+      const idx = insertIndexForPoint(half, q);
+      setTrim((ts) => ts.map((t) => (t.id === active.id
+        ? rebuildMirrored(t, [...half.slice(0, idx), q, ...half.slice(idx)])
+        : t)));
+      (e.target as Element).setPointerCapture(e.pointerId);
+      trimDrag.current = { trimId: active.id, loop: 'points', index: idx };
+      return;
+    }
     const { loop, index: idx } = nearestLoop(active, p);
     setTrim((ts) => ts.map((t) => {
       if (t.id !== active.id) return t;
@@ -1053,6 +1129,14 @@ export function DoorBench({ onDone, edit }: { onDone: () => void; edit?: AdminLe
                   own image covers the trim, so only what falls OUTSIDE this
                   box is what the customer actually ends up seeing. */}
               <rect x={leafRef.x * tDispW} y={leafRef.y * tDispH} width={leafRef.w * tDispW} height={leafRef.h * tDispH} fill="none" stroke={COLOR.lineStrong} strokeDasharray="5 4" strokeWidth={1.5} />
+              {/* The axis the mirror reflects about, drawn only while it is in
+                  use — otherwise it is one more line over the photograph. */}
+              {!showResult && activeTrim?.mirror && (
+                <line
+                  x1={mirrorAxis * tDispW} y1={0} x2={mirrorAxis * tDispW} y2={tDispH}
+                  stroke={ROLE_META[activeTrim.role].color} strokeDasharray="3 5" strokeWidth={1} opacity={0.7}
+                />
+              )}
               {!showResult && activeTrim && (
                 <TraceShape
                   points={activeTrim.points}
@@ -1063,16 +1147,20 @@ export function DoorBench({ onDone, edit }: { onDone: () => void; edit?: AdminLe
                 />
               )}
             </svg>
-            {!showResult && activeTrim?.points.map((p, i) => (
-              <Handle
-                key={`o${i}`}
-                x={p.x * tDispW}
-                y={p.y * tDispH}
-                color={ROLE_META[activeTrim.role].color}
-                onPointerDown={(e) => { e.stopPropagation(); (e.target as Element).setPointerCapture(e.pointerId); trimDrag.current = { trimId: activeTrim.id, loop: 'points', index: i }; }}
-                onDoubleClick={() => removeTrimPoint(activeTrim.id, 'points', i)}
-              />
-            ))}
+            {/* In mirror mode only the authored half gets handles. The other
+                side has no independent existence to grab — it is recomputed
+                from these on every edit. */}
+            {!showResult && activeTrim
+              && (activeTrim.mirror ? authoredHalf(activeTrim.points, mirrorAxis) : activeTrim.points).map((p, i) => (
+                <Handle
+                  key={`o${i}`}
+                  x={p.x * tDispW}
+                  y={p.y * tDispH}
+                  color={ROLE_META[activeTrim.role].color}
+                  onPointerDown={(e) => { e.stopPropagation(); (e.target as Element).setPointerCapture(e.pointerId); trimDrag.current = { trimId: activeTrim.id, loop: 'points', index: i }; }}
+                  onDoubleClick={() => removeTrimPoint(activeTrim.id, 'points', i)}
+                />
+              ))}
             {!showResult && activeTrim?.holePoints?.map((p, i) => (
               <Handle
                 key={`h${i}`}
@@ -1298,6 +1386,26 @@ export function DoorBench({ onDone, edit }: { onDone: () => void; edit?: AdminLe
                                     <input type="checkbox" checked={!!t.holePoints} onChange={() => toggleTrimHole(t.id)} />
                                     Ichki chegarani ham (qo‘lda) belgilash
                                   </label>
+                                )}
+
+                                {/* Offered where the piece really is centred on
+                                    the door: a korona is, a single side casing
+                                    is not. A piece with a hole is left out —
+                                    only the outer loop is mirrored, and half a
+                                    mirrored piece would be worse than none. */}
+                                {t.role === 'crown' && !t.holePoints && (
+                                  <>
+                                    <label style={{ display: 'flex', alignItems: 'center', gap: 8, minHeight: TOUCH_MIN, marginTop: 6, fontSize: 12, color: COLOR.ink, cursor: 'pointer' }}>
+                                      <input type="checkbox" checked={!!t.mirror} onChange={() => toggleMirror(t.id)} />
+                                      Simmetrik — chap yarmini chizaman
+                                    </label>
+                                    {t.mirror && (
+                                      <div style={{ fontSize: 11, color: COLOR.inkSoft, lineHeight: 1.5, paddingLeft: 26 }}>
+                                        O‘ng tarafi markaz chizig‘iga nisbatan o‘zi chiziladi.
+                                        {' '}Chapdagi {authoredHalf(t.points, mirrorAxis).length} ta nuqta bilan ishlaysiz.
+                                      </div>
+                                    )}
+                                  </>
                                 )}
 
                                 <div style={{ marginTop: 8 }}>
