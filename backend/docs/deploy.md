@@ -7,6 +7,16 @@ origin'dan chizilgan canvas "tainted" bo'lib, har bir o'qish yiqiladi
 (`Architecture.md` §4). Shuning uchun ilova **subdomen ildizida** turadi,
 sub-yo'lda emas.
 
+## Bir marta: lokal mashinada
+
+**Eng birinchi shu bajariladi.** `deploy` branch hozir eski statik saytni
+saqlab turibdi — quyidagi buyruq uni to'liq ilovaga almashtiradi. Server
+undan klon qiladi, ya'ni tartib muhim:
+
+```
+bash deploy.sh
+```
+
 ## Bir marta: server tayyorlash (FastPanel)
 
 1. **Subdomen yarating** — masalan `door.dbc-server.uz`.
@@ -22,6 +32,9 @@ sub-yo'lda emas.
    git clone -b deploy --single-branch \
      https://github.com/dawrandev/door-configuration.git door.dbc-server.uz
    ```
+
+   Repo yopiq (private) bo'lsa klon parol so'raydi — GitHub'da Personal
+   Access Token yasab, parol o'rniga shuni bering.
 
 5. **`.env` yozing** (`.env.example` dan nusxa oling) va shularni to'g'irlang:
 
@@ -60,8 +73,42 @@ Serverda:
 cd /var/www/<user>/data/www/door.dbc-server.uz && bash server-deploy.sh
 ```
 
-`main` ga push qilinganda `.github/workflows/deploy.yml` shu ikkalasini
-o'zi bajaradi.
+Bu asosiy yo'l. `.github/workflows/deploy.yml` xuddi shu ikkalasini `main` ga
+push qilinganda o'zi bajaradi — lekin u to'rtta GitHub secret qo'yilmaguncha
+oxirgi qadamda to'xtaydi (pastda). Secret'lar yo'q bo'lsa ham `deploy` branch
+yangilanadi, ya'ni serverda `bash server-deploy.sh` ni qo'lda bajarish
+yetarli.
+
+## Ixtiyoriy: deploy'ni GitHub bajarsin
+
+`.github/workflows/deploy.yml` allaqachon yozilgan. Ishlashi uchun faqat
+serverga kirish kaliti kerak.
+
+**Serverda**, deploy foydalanuvchisi nomidan:
+
+```
+ssh-keygen -t ed25519 -f ~/.ssh/gh_deploy -N ''
+cat ~/.ssh/gh_deploy.pub >> ~/.ssh/authorized_keys
+chmod 600 ~/.ssh/authorized_keys
+cat ~/.ssh/gh_deploy          # MAXFIY kalit — to'liq matnini ko'chirib oling
+```
+
+**GitHub'da:** repo → *Settings* → *Secrets and variables* → *Actions* →
+*New repository secret*. To'rttasi:
+
+| Nom | Qiymat |
+|---|---|
+| `SSH_HOST` | server IP yoki hostname |
+| `SSH_USER` | yuqoridagi kalit tegishli foydalanuvchi |
+| `SSH_KEY` | `~/.ssh/gh_deploy` ning **to'liq** matni (`-----BEGIN` dan `-----END` gacha) |
+| `DEPLOY_PATH` | `/var/www/<user>/data/www/door.dbc-server.uz` |
+
+Ixtiyoriy: `SSH_PORT` (22 emas bo'lsa), `SSH_KNOWN_HOSTS` (host kalitini
+qotirish uchun; qo'yilmasa birinchi ulanishda serverning kalitiga ishoniladi).
+
+Shundan keyin `main` ga har push — va **jonli saytga deploy**. Natijani
+repo'ning *Actions* tabida ko'rasiz. Qo'lda ishga tushirish ham bor:
+*Actions* → *Build & Deploy* → *Run workflow*.
 
 ## Nima hech qachon o'chirilmaydi
 
