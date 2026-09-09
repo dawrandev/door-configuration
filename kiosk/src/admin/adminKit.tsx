@@ -1,4 +1,4 @@
-import { createContext, useCallback, useContext, useRef, useState, type ReactNode } from 'react';
+import { createContext, useCallback, useContext, useEffect, useRef, useState, type ReactNode } from 'react';
 import { createPortal } from 'react-dom';
 import { COLOR, FONT, RADIUS, RADIUS_SM, TOUCH_MIN, TYPE } from '../design/tokens';
 import { PrimaryButton, GhostButton } from '../ui/controls';
@@ -171,12 +171,39 @@ export function Handle({ x, y, color = COLOR.brass, onPointerDown, onDoubleClick
     if (now - lastTap.current < TAP_WINDOW_MS) { onDoubleClick(); lastTap.current = 0; }
     else lastTap.current = now;
   };
+  /*
+   * A held point has to stop hiding the thing it is being aimed at.
+   *
+   * The dot is 20px of solid colour sitting exactly on the pixel the operator
+   * is lining up with, so at the moment of placing it the target is under the
+   * cursor AND under the dot. While held the dot therefore fades and shrinks
+   * and a hairline crosshair takes over: the cross says where the point is to
+   * the pixel without painting over what is beside it.
+   *
+   * Tracked here rather than passed in, so all three benches get it without
+   * threading drag state through every call site.
+   */
+  const [held, setHeld] = useState(false);
+  useEffect(() => {
+    if (!held) return;
+    const release = () => setHeld(false);
+    // Pointer capture can end anywhere — outside the element, outside the
+    // window — so the release is watched globally rather than on this node.
+    window.addEventListener('pointerup', release);
+    window.addEventListener('pointercancel', release);
+    return () => {
+      window.removeEventListener('pointerup', release);
+      window.removeEventListener('pointercancel', release);
+    };
+  }, [held]);
+
   return (
     <div
-      onPointerDown={handleDown}
+      onPointerDown={(e) => { if (e.button === 0) setHeld(true); handleDown(e); }}
       onPointerUp={handleUp}
-      style={{ position: 'absolute', left: x - TOUCH_MIN / 2, top: y - TOUCH_MIN / 2, width: TOUCH_MIN, height: TOUCH_MIN, display: 'flex', alignItems: 'center', justifyContent: 'center', touchAction: 'none' }}
+      style={{ position: 'absolute', left: x - TOUCH_MIN / 2, top: y - TOUCH_MIN / 2, width: TOUCH_MIN, height: TOUCH_MIN, display: 'flex', alignItems: 'center', justifyContent: 'center', touchAction: 'none', zIndex: held ? 5 : undefined }}
     >
+      {held && <Crosshair color={color} />}
       {/* The hand cursor lives on the visible dot alone, not the full 44px
           hit-zone around it — that invisible margin is for a finger or an
           imprecise click to still land on the point, not for the cursor to
@@ -184,7 +211,136 @@ export function Handle({ x, y, color = COLOR.brass, onPointerDown, onDoubleClick
           pointer is actually over it. `pointerEvents: auto` here just makes
           this the hover target for the cursor; the click/drag itself still
           resolves on the outer div either way, since it bubbles there. */}
-      <div style={{ width: 20, height: 20, borderRadius: 999, background: color, border: '2px solid #fff', boxShadow: '0 1px 6px rgba(35,32,27,.35)', cursor: 'grab', pointerEvents: 'auto' }} />
+      <div
+        style={{
+          width: held ? 11 : 20,
+          height: held ? 11 : 20,
+          borderRadius: 999,
+          background: color,
+          border: '2px solid #fff',
+          boxShadow: '0 1px 6px rgba(35,32,27,.35)',
+          cursor: held ? 'grabbing' : 'grab',
+          opacity: held ? 0.4 : 1,
+          pointerEvents: 'auto',
+          transition: 'width .12s, height .12s, opacity .12s',
+        }}
+      />
+    </div>
+  );
+}
+
+/** The hairlines that replace a held dot. Centred on the point and drawn well
+ *  past the 44px hit-zone, so an edge can be sighted along them. */
+function Crosshair({ color }: { color: string }) {
+  const arm = 46;
+  const span = arm * 2 + TOUCH_MIN;
+  const base: React.CSSProperties = { position: 'absolute', pointerEvents: 'none' };
+  // A white companion under each hairline: a 1px coloured line disappears
+  // against a photograph of the same colour, which is exactly this case —
+  // the handles are brass and the trim being traced very often is too.
+  return (
+    <>
+      <div style={{ ...base, left: '50%', top: -arm, marginLeft: -1.5, width: 3, height: span, background: 'rgba(255,255,255,.9)' }} />
+      <div style={{ ...base, top: '50%', left: -arm, marginTop: -1.5, height: 3, width: span, background: 'rgba(255,255,255,.9)' }} />
+      <div style={{ ...base, left: '50%', top: -arm, marginLeft: -0.5, width: 1, height: span, background: color, opacity: 0.85 }} />
+      <div style={{ ...base, top: '50%', left: -arm, marginTop: -0.5, height: 1, width: span, background: color, opacity: 0.85 }} />
+    </>
+  );
+}
+
+/**
+ * Overlay colours for every tracing surface, in one place.
+ *
+ * They were duplicated as literals across the three benches, and every one of
+ * them was heavy enough to bury the detail being traced — which is the one
+ * thing the operator is looking at. A trace has a stroke to say where it runs;
+ * the fill only has to say which side of it is inside.
+ */
+export const TRACE = {
+  /** A traced trim piece. Was .15 — enough to grey out the moulding. */
+  fill: 'rgba(35,32,27,.07)',
+  /** The door face on the first stage. Was .16. */
+  doorFill: 'rgba(143,113,69,.09)',
+  /** A room's doorway. Heavier than the rest deliberately: it stands for the
+   *  opening, which really does go dark. Was .35. */
+  openingFill: 'rgba(35,32,27,.20)',
+} as const;
+
+/**
+ * A traced outline, with its hole genuinely cut out of it.
+ *
+ * The hole used to be a second polygon filled rgba(255,255,255,.28) — a white
+ * wash laid OVER the photograph, which bleached the very moulding the operator
+ * was trying to line the inner edge up against. One path with evenodd makes it
+ * a real hole: the fill stops there and the photograph shows through untouched.
+ */
+export function TraceShape({ points, holePoints, color, w, h }: {
+  points: { x: number; y: number }[];
+  holePoints?: { x: number; y: number }[];
+  color: string;
+  w: number;
+  h: number;
+}) {
+  const path = (pts: { x: number; y: number }[]) =>
+    pts.length ? 'M' + pts.map((p) => `${p.x * w},${p.y * h}`).join('L') + 'Z' : '';
+  return (
+    <>
+      <path
+        d={path(points) + (holePoints ? ' ' + path(holePoints) : '')}
+        fillRule="evenodd"
+        fill={TRACE.fill}
+        stroke={color}
+        strokeWidth={2}
+      />
+      {/* The inner edge redrawn as its own dashed stroke — the path above only
+          fills, it cannot dash one of its subpaths. */}
+      {holePoints && (
+        <path d={path(holePoints)} fill="none" stroke={color} strokeWidth={2} strokeDasharray="6 5" />
+      )}
+    </>
+  );
+}
+
+/**
+ * A magnifier that follows the point being dragged.
+ *
+ * Fading the dot stops IT covering the target, but the operator's own hand and
+ * the cursor still do — and a 1300px photograph shown at 700px means one
+ * display pixel is two real ones, so the edge being aimed at is not even fully
+ * drawn. This shows the area under the point at 3x, off to the side, where
+ * nothing is covering it.
+ *
+ * CSS background-position rather than a canvas: the photograph is already
+ * decoded and in the page, and this needs no pixel readback — which keeps it
+ * clear of the canvas-tainting rules the rest of the pipeline lives under.
+ *
+ * @param x,y  the point in display pixels, within the same positioned box
+ */
+export function Loupe({ src, dispW, dispH, x, y, zoom = 3, size = 128 }: {
+  src: string; dispW: number; dispH: number; x: number; y: number; zoom?: number; size?: number;
+}) {
+  const GAP = 26;
+  // Above the point normally, below it when there is no room — so the loupe is
+  // never clipped away by the top of the scroll area just as it is needed.
+  const above = y > size + GAP;
+  const top = above ? y - size - GAP : y + GAP;
+  const left = Math.min(Math.max(x - size / 2, 2), Math.max(2, dispW - size - 2));
+  const hair: React.CSSProperties = { position: 'absolute', background: 'rgba(255,255,255,.9)', pointerEvents: 'none' };
+  return (
+    <div
+      style={{
+        position: 'absolute', left, top, width: size, height: size, borderRadius: 999,
+        border: '2px solid #fff', boxShadow: '0 6px 20px rgba(35,32,27,.4)', overflow: 'hidden',
+        pointerEvents: 'none', zIndex: 6, backgroundColor: '#fff',
+        backgroundImage: `url("${src}")`,
+        backgroundRepeat: 'no-repeat',
+        backgroundSize: `${dispW * zoom}px ${dispH * zoom}px`,
+        backgroundPosition: `${size / 2 - x * zoom}px ${size / 2 - y * zoom}px`,
+      }}
+    >
+      <div style={{ ...hair, left: 0, top: size / 2, width: '100%', height: 1 }} />
+      <div style={{ ...hair, top: 0, left: size / 2, height: '100%', width: 1 }} />
+      <div style={{ position: 'absolute', left: size / 2 - 6, top: size / 2 - 6, width: 12, height: 12, borderRadius: 999, border: `1.5px solid ${COLOR.brass}`, pointerEvents: 'none' }} />
     </div>
   );
 }

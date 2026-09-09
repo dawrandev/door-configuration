@@ -3,7 +3,7 @@ import { COLOR, RADIUS, RADIUS_SM, TOUCH_MIN, TYPE } from '../design/tokens';
 import { processRoom, type Rect } from './roomProcess';
 import { publishRoom, dataUrlToBlob, type AdminRoom } from '../api/catalog';
 import { ApiError } from '../api/http';
-import { Panel, PanelBody, PanelFooter, Label, Section, inp, AdminPrimaryButton, Handle, DimHUD, DANGER, useToast, ROLE_ORDER, ROLE_META, RoleChip, MoveResize } from './adminKit';
+import { Panel, PanelBody, PanelFooter, Label, Section, inp, AdminPrimaryButton, Handle, DimHUD, DANGER, useToast, ROLE_ORDER, ROLE_META, RoleChip, MoveResize, TRACE, TraceShape, Loupe } from './adminKit';
 import { bboxOfPoints, seedPoints, defaultRectFor, nearestLoop, toStoredTrim, toTrimState, type Point, type TrimPieceState } from './trimGeometry';
 import { recolorTrim } from '../render/recolor';
 import type { Tint } from '../catalog/colors';
@@ -134,6 +134,11 @@ export function RoomBench({ onDone, edit }: { onDone: () => void; edit?: AdminRo
    *  piece drags one point of its outer OR inner (hole) outline at a time,
    *  by index — `loop` says which. */
   const drag = useRef<{ kind: 'corner'; corner: Corner } | { kind: 'point'; trimId: string; loop: 'points' | 'holePoints'; index: number } | null>(null);
+  /** Where the loupe looks, in fractions. State rather than a ref because the
+   *  magnifier has to be re-rendered as the point moves, and `drag` above is
+   *  deliberately a ref so that pressing a handle does not re-render. */
+  const [lens, setLens] = useState<{ x: number; y: number } | null>(null);
+  const endDrag = () => { drag.current = null; setLens(null); };
 
   useEffect(() => {
     if (!edit) return;
@@ -187,6 +192,7 @@ export function RoomBench({ onDone, edit }: { onDone: () => void; edit?: AdminRo
     if (!drag.current) return;
     const p = toFrac(e.clientX, e.clientY);
     const d = drag.current;
+    setLens({ x: Math.min(Math.max(0, p.x), 1), y: Math.min(Math.max(0, p.y), 1) });
     if (d.kind === 'corner') {
       setBox((b) => (b ? resizeCorner(b, d.corner, p) : b));
     } else {
@@ -391,7 +397,7 @@ export function RoomBench({ onDone, edit }: { onDone: () => void; edit?: AdminRo
             ref={wrapRef}
             style={{ position: 'relative', width: dispW, height: dispH, flexShrink: 0, touchAction: 'none' }}
             onPointerMove={onMove}
-            onPointerUp={() => (drag.current = null)}
+            onPointerUp={endDrag}
             onPointerDown={onAddPoint}
           >
             <img src={img.src} alt="" draggable={false} style={{ width: '100%', height: '100%', display: 'block', userSelect: 'none' }} />
@@ -406,7 +412,7 @@ export function RoomBench({ onDone, edit }: { onDone: () => void; edit?: AdminRo
                 a trim row off) is how focus moves between them. */}
             {!activeTrim && (
               <>
-                <div style={{ position: 'absolute', left: box.x * dispW, top: box.y * dispH, width: box.w * dispW, height: box.h * dispH, border: `1.5px solid ${COLOR.brass}`, background: 'rgba(35,32,27,.35)' }} />
+                <div style={{ position: 'absolute', left: box.x * dispW, top: box.y * dispH, width: box.w * dispW, height: box.h * dispH, border: `1.5px solid ${COLOR.brass}`, background: TRACE.openingFill }} />
                 {corners(box).map(({ corner, x, y }) => (
                   <Handle key={corner} x={x * dispW} y={y * dispH} onPointerDown={(e) => { e.stopPropagation(); (e.target as Element).setPointerCapture(e.pointerId); drag.current = { kind: 'corner', corner }; }} />
                 ))}
@@ -414,24 +420,17 @@ export function RoomBench({ onDone, edit }: { onDone: () => void; edit?: AdminRo
             )}
             {activeTrim && (
               <>
+                {/* The inner edge is dashed and genuinely cut out of the outer
+                    fill, so it reads as "a hole in this piece" and leaves the
+                    photograph underneath it untouched. */}
                 <svg style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', pointerEvents: 'none' }}>
-                  <polygon
-                    points={activeTrim.points.map((p) => `${p.x * dispW},${p.y * dispH}`).join(' ')}
-                    fill="rgba(35,32,27,.15)"
-                    stroke={ROLE_META[activeTrim.role].color}
-                    strokeWidth={2}
+                  <TraceShape
+                    points={activeTrim.points}
+                    holePoints={activeTrim.holePoints}
+                    color={ROLE_META[activeTrim.role].color}
+                    w={dispW}
+                    h={dispH}
                   />
-                  {/* The inner (hole) edge — dashed, so it reads as "cut out of"
-                      the solid outer edge rather than a second identical piece. */}
-                  {activeTrim.holePoints && (
-                    <polygon
-                      points={activeTrim.holePoints.map((p) => `${p.x * dispW},${p.y * dispH}`).join(' ')}
-                      fill="rgba(255,255,255,.28)"
-                      stroke={ROLE_META[activeTrim.role].color}
-                      strokeWidth={2}
-                      strokeDasharray="6 5"
-                    />
-                  )}
                 </svg>
                 {activeTrim.points.map((p, i) => (
                   <Handle
@@ -458,6 +457,7 @@ export function RoomBench({ onDone, edit }: { onDone: () => void; edit?: AdminRo
               </>
             )}
 
+            {lens && <Loupe src={img.src} dispW={dispW} dispH={dispH} x={lens.x * dispW} y={lens.y * dispH} />}
             {draggingRect && <DimHUD rect={draggingRect} w={img.width} h={img.height} />}
           </div>
         )}

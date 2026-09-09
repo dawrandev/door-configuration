@@ -8,7 +8,7 @@ import {
 import { ApiError } from '../api/http';
 import type { DoorColor } from '../catalog/colors';
 import {
-  Panel, PanelBody, PanelFooter, Label, Section, inp, AdminPrimaryButton, AdminGhostButton, Seg, Pad, Handle, DANGER, useToast, ROLE_ORDER, ROLE_META, RoleChip, MoveResize,
+  Panel, PanelBody, PanelFooter, Label, Section, inp, AdminPrimaryButton, AdminGhostButton, Seg, Pad, Handle, DANGER, useToast, ROLE_ORDER, ROLE_META, RoleChip, MoveResize, TRACE, TraceShape, Loupe,
 } from './adminKit';
 import { bboxOfPoints, seedPoints, defaultRectFor, nearestLoop, toStoredTrim, toTrimState, type TrimPieceState } from './trimGeometry';
 import { maskTrim, useRender } from '../render/recolor';
@@ -262,6 +262,11 @@ export function DoorBench({ onDone, edit }: { onDone: () => void; edit?: AdminLe
   const drag = useRef<number | null>(null);
   const trimWrapRef = useRef<HTMLDivElement>(null);
   const trimDrag = useRef<{ trimId: string; loop: 'points' | 'holePoints'; index: number } | null>(null);
+  /** Where each stage's loupe looks, in that stage's own display pixels. State
+   *  rather than a ref: the magnifier has to re-render as the point moves,
+   *  while the drag refs above deliberately do not re-render on a press. */
+  const [lens, setLens] = useState<{ x: number; y: number } | null>(null);
+  const [trimLens, setTrimLens] = useState<{ x: number; y: number } | null>(null);
 
   /**
    * Reopen a saved door for adjustment. Its settings come back always; its
@@ -438,7 +443,9 @@ export function DoorBench({ onDone, edit }: { onDone: () => void; edit?: AdminLe
   const onMove = (e: React.PointerEvent) => {
     if (drag.current == null || !img) return;
     const p = toImg(e.clientX, e.clientY);
-    setCorners((cs) => cs.map((c, i) => (i === drag.current ? { x: Math.max(0, Math.min(img.width, p.x)), y: Math.max(0, Math.min(img.height, p.y)) } : c)));
+    const x = Math.max(0, Math.min(img.width, p.x)), y = Math.max(0, Math.min(img.height, p.y));
+    setLens({ x: x * zoom, y: y * zoom });
+    setCorners((cs) => cs.map((c, i) => (i === drag.current ? { x, y } : c)));
   };
   const nudge = (i: number, dx: number, dy: number) => setCorners((cs) => cs.map((c, k) => (k === i ? { x: c.x + dx, y: c.y + dy } : c)));
 
@@ -513,6 +520,7 @@ export function DoorBench({ onDone, edit }: { onDone: () => void; edit?: AdminLe
     if (!trimDrag.current) return;
     const { trimId, loop, index } = trimDrag.current;
     const p = toTrimFrac(e.clientX, e.clientY);
+    setTrimLens({ x: p.x * tDispW, y: p.y * tDispH });
     setTrim((ts) => ts.map((t) => {
       if (t.id !== trimId) return t;
       const source = t[loop] ?? [];
@@ -806,14 +814,15 @@ export function DoorBench({ onDone, edit }: { onDone: () => void; edit?: AdminLe
           </label>
         )}
         {img && !onTrimStage && (
-          <div ref={wrapRef} style={{ position: 'relative', width: dispW, height: dispH, flexShrink: 0, touchAction: 'none' }} onPointerMove={onMove} onPointerUp={() => (drag.current = null)}>
+          <div ref={wrapRef} style={{ position: 'relative', width: dispW, height: dispH, flexShrink: 0, touchAction: 'none' }} onPointerMove={onMove} onPointerUp={() => { drag.current = null; setLens(null); }}>
             <img src={img.src} alt="" draggable={false} style={{ width: '100%', height: '100%', display: 'block', userSelect: 'none' }} />
             <svg style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', pointerEvents: 'none' }}>
-              <polygon points={corners.map((c) => `${c.x * zoom},${c.y * zoom}`).join(' ')} fill="rgba(143,113,69,.16)" stroke={COLOR.brass} strokeWidth={2} />
+              <polygon points={corners.map((c) => `${c.x * zoom},${c.y * zoom}`).join(' ')} fill={TRACE.doorFill} stroke={COLOR.brass} strokeWidth={2} />
             </svg>
             {corners.map((c, i) => (
               <Handle key={i} x={c.x * zoom} y={c.y * zoom} onPointerDown={(e) => { (e.target as Element).setPointerCapture(e.pointerId); drag.current = i; }} />
             ))}
+            {lens && <Loupe src={img.src} dispW={dispW} dispH={dispH} x={lens.x} y={lens.y} />}
           </div>
         )}
         {showTrimStudio && (
@@ -834,7 +843,7 @@ export function DoorBench({ onDone, edit }: { onDone: () => void; edit?: AdminLe
                 : null),
             }}
             onPointerMove={showResult || !activeTrim ? undefined : onTrimMove}
-            onPointerUp={showResult || !activeTrim ? undefined : () => (trimDrag.current = null)}
+            onPointerUp={showResult || !activeTrim ? undefined : () => { trimDrag.current = null; setTrimLens(null); }}
             onPointerDown={showResult || !activeTrim ? undefined : onTrimAddPoint}
           >
             {/* Nothing at all while the cut-out is still being computed —
@@ -856,20 +865,12 @@ export function DoorBench({ onDone, edit }: { onDone: () => void; edit?: AdminLe
                   box is what the customer actually ends up seeing. */}
               <rect x={leafRef.x * tDispW} y={leafRef.y * tDispH} width={leafRef.w * tDispW} height={leafRef.h * tDispH} fill="none" stroke={COLOR.lineStrong} strokeDasharray="5 4" strokeWidth={1.5} />
               {!showResult && activeTrim && (
-                <polygon
-                  points={activeTrim.points.map((p) => `${p.x * tDispW},${p.y * tDispH}`).join(' ')}
-                  fill="rgba(35,32,27,.15)"
-                  stroke={ROLE_META[activeTrim.role].color}
-                  strokeWidth={2}
-                />
-              )}
-              {!showResult && activeTrim?.holePoints && (
-                <polygon
-                  points={activeTrim.holePoints.map((p) => `${p.x * tDispW},${p.y * tDispH}`).join(' ')}
-                  fill="rgba(255,255,255,.28)"
-                  stroke={ROLE_META[activeTrim.role].color}
-                  strokeWidth={2}
-                  strokeDasharray="6 5"
+                <TraceShape
+                  points={activeTrim.points}
+                  holePoints={activeTrim.holePoints}
+                  color={ROLE_META[activeTrim.role].color}
+                  w={tDispW}
+                  h={tDispH}
                 />
               )}
             </svg>
@@ -893,6 +894,11 @@ export function DoorBench({ onDone, edit }: { onDone: () => void; edit?: AdminLe
                 onDoubleClick={() => removeTrimPoint(activeTrim.id, 'holePoints', i)}
               />
             ))}
+            {/* The padded photo, never the cut-out preview: the loupe is for
+                aiming at the moulding, and in the preview it is gone. */}
+            {trimLens && !showResult && paddedImg && (
+              <Loupe src={paddedImg.src} dispW={tDispW} dispH={tDispH} x={trimLens.x} y={trimLens.y} />
+            )}
           </div>
         )}
       </div>
