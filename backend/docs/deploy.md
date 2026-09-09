@@ -105,6 +105,12 @@ origin saqlanib qolgani uchun verstakdagi import tugmasi ularni topadi
    chiqmaydi (`dc.imported.v1`). Boshqa brauzerda boshqa eshiklar bo'lsa,
    o'sha brauzerda ham bir marta bosing.
 
+   Tugma ko'rinmasa: origin'ga scheme ham kiradi. Eski saytga `http://`
+   bilan kirilgan bo'lsa, ma'lumot `http://dawran.dbc-server.uz` ostida
+   yotadi va `https://` uni ko'rmaydi. Tekshirish: eski manzilni aynan
+   qanday ochgan bo'lsangiz shunday ochib, DevTools → *Application* →
+   *Local storage* da `dc.leaves.v1` bor-yo'qligini qarang.
+
 
 ## Har safar
 
