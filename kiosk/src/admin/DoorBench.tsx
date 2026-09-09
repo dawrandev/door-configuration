@@ -187,9 +187,14 @@ function compactSource(el: HTMLImageElement, maxW = 1300): string {
  */
 const LABELS = ['Yuqori chap', 'Yuqori o‘ng', 'Past o‘ng', 'Past chap'];
 
-/** Where in the four stages this door is. An orientation aid only — the
- *  stages are walked with the footer buttons, so there is never a way to
- *  land on one without the one before it being settled. */
+/**
+ * Where in the stages this door is, and how to jump between them.
+ *
+ * Every step is clickable once there is a door to work on — reopening to fix
+ * one thing should not mean walking the whole sequence to reach it. The labels
+ * carry a dotted underline so that reads as an offer rather than a caption;
+ * they looked like plain text and were being treated as one.
+ */
 function Stepper({ stage, onGo, enabled }: { stage: Stage; onGo: (s: Stage) => void; enabled: boolean }) {
   const at = STAGES.findIndex((s) => s.id === stage);
   return (
@@ -208,7 +213,14 @@ function Stepper({ stage, onGo, enabled }: { stage: Stage; onGo: (s: Stage) => v
             }}
           >
             <div style={{ height: 3, borderRadius: 2, background: now ? COLOR.brass : i < at ? 'rgba(143,113,69,.45)' : COLOR.line }} />
-            <div style={{ marginTop: 5, fontSize: 11, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', color: now ? COLOR.ink : COLOR.inkSoft, fontWeight: now ? 600 : 400 }}>
+            <div
+              style={{
+                marginTop: 5, fontSize: 11, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis',
+                color: now ? COLOR.ink : COLOR.inkSoft, fontWeight: now ? 600 : 400,
+                textDecoration: enabled && !now ? 'underline dotted' : 'none',
+                textUnderlineOffset: 3,
+              }}
+            >
               {i + 1}. {s.label}
             </div>
           </button>
@@ -326,8 +338,26 @@ export function DoorBench({ onDone, edit }: { onDone: () => void; edit?: AdminLe
    * Paints and this door's designs, read once from the bench catalogue. They
    * live on the server now, so neither can be merged out of this browser.
    */
+  /**
+   * Whether this door's own designs have arrived yet.
+   *
+   * The restore below MUST NOT run before they have. It used to run twice —
+   * once against an empty `doorTrims`, then again when the fetch landed — and
+   * the second run calls setStage('door'), setTrim(...) and setName(...). On
+   * localhost that window is a few milliseconds and invisible. Over a real
+   * network it is long enough to open the nalichnik stage, which seeds the two
+   * default strips because nothing has been restored yet; the late restore
+   * then throws that away, or the operator publishes the seeded defaults over
+   * the outlines they actually cut. Either way the tracing is lost.
+   */
+  const [trimsReady, setTrimsReady] = useState(!edit);
+  /** True until a reopened door is fully in the form. Nothing is editable
+   *  before then, because until then it is not this door's state. */
+  const [loadingEdit, setLoadingEdit] = useState(!!edit);
+
   useEffect(() => {
     let live = true;
+    setTrimsReady(!edit);
     void (async () => {
       try {
         const cat = await getAdminCatalog();
@@ -339,13 +369,17 @@ export function DoorBench({ onDone, edit }: { onDone: () => void; edit?: AdminLe
       } catch {
         // The bench shell already reports a catalogue it cannot read; failing
         // again here would just stack two messages for one cause.
+      } finally {
+        // Even on failure: a catalogue that cannot be read must not leave the
+        // bench stuck on "Yuklanmoqda…" with no way forward.
+        if (live) setTrimsReady(true);
       }
     })();
     return () => { live = false; };
   }, [edit]);
 
   useEffect(() => {
-    if (!edit) return;
+    if (!edit || !trimsReady) return;
     setName(edit.name.uz);
     setWhite(edit.white ?? true);
     setSelected(new Set(edit.colorIds ?? colors.map((c) => c.id)));
@@ -367,8 +401,11 @@ export function DoorBench({ onDone, edit }: { onDone: () => void; edit?: AdminLe
     setNalichnikName(nal?.name.uz ?? '');
     setKoronaName(kor?.name.uz ?? '');
 
-    if (!edit.source) return;
+    // A door with no stored photograph cannot be re-cut at all, so there is
+    // nothing further to wait for.
+    if (!edit.source) { setLoadingEdit(false); return; }
     const el = new Image();
+    el.onerror = () => setLoadingEdit(false);
     el.onload = () => {
       setImg(el);
       setSource(edit.source!);
@@ -398,10 +435,12 @@ export function DoorBench({ onDone, edit }: { onDone: () => void; edit?: AdminLe
         const was = (nal ?? kor)!.trimMargin;
         setTrim(remapPieces(stored, was, photoMargin(el, quad)));
       }
+      // Last: everything this door had is now in the form, so it can be edited.
+      setLoadingEdit(false);
     };
     el.src = edit.source;
     // eslint-disable-next-line react-hooks/exhaustive-deps -- see the docblock: adding `colors` resets the form mid-edit.
-  }, [edit, doorTrims]);
+  }, [edit, doorTrims, trimsReady]);
 
   const onFile = (e: React.ChangeEvent<HTMLInputElement>) => {
     const f = e.target.files?.[0];
@@ -909,6 +948,22 @@ export function DoorBench({ onDone, edit }: { onDone: () => void; edit?: AdminLe
   const sDispW = shapeImg ? shapeImg.width * zoom : 0;
   const sDispH = shapeImg ? shapeImg.height * zoom : 0;
 
+  /*
+   * Nothing is editable until a reopened door is fully in the form.
+   *
+   * Not politeness: before this point the stages hold a NEW door's defaults,
+   * and the nalichnik stage seeds two strips the moment it is opened. Work
+   * done in that window is either overwritten when the real outlines land, or
+   * published over the ones the operator actually cut.
+   */
+  if (loadingEdit) {
+    return (
+      <div style={{ display: 'flex', height: '100%', width: '100%', alignItems: 'center', justifyContent: 'center', background: COLOR.studio }}>
+        <div style={{ ...TYPE.small, color: COLOR.inkSoft }}>Eshik yuklanmoqda…</div>
+      </div>
+    );
+  }
+
   return (
     <div style={{ display: 'flex', height: '100%', width: '100%', minHeight: 0 }}>
       <div className="scr" style={{ flex: 1, minWidth: 0, overflow: 'auto', padding: 20, display: 'flex', alignItems: 'flex-start', background: COLOR.studio }}>
@@ -1366,9 +1421,19 @@ export function DoorBench({ onDone, edit }: { onDone: () => void; edit?: AdminLe
                     {checking ? 'Ishlanmoqda…' : 'Sifatni tekshirish'}
                   </AdminGhostButton>
                   <AdminPrimaryButton onClick={() => void publish()} disabled={!live || busy} style={{ flex: 1 }}>
-                    {busy ? 'Saqlanmoqda…' : 'Qo‘shish ✓'}
+                    {busy ? 'Saqlanmoqda…' : edit ? 'Saqlash ✓' : 'Qo‘shish ✓'}
                   </AdminPrimaryButton>
                 </>
+              )}
+              {/* Editing an existing door can end at any stage. Coming back to
+                  straighten the four corners should not mean walking the trim
+                  stages again to reach a save button — and every stage already
+                  holds this door's real state, so saving from here republishes
+                  exactly what was restored plus whatever was just changed. */}
+              {edit && stage !== 'finish' && (
+                <AdminGhostButton onClick={() => void publish()} disabled={!live || busy} style={{ flex: '0 0 auto', width: 'auto', padding: '0 16px' }}>
+                  {busy ? 'Saqlanmoqda…' : 'Saqlash ✓'}
+                </AdminGhostButton>
               )}
             </div>
           </PanelFooter>
