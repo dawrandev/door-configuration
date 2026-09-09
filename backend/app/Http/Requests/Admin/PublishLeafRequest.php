@@ -82,6 +82,7 @@ class PublishLeafRequest extends FormRequest
             ],
             Geometry::name('payload.leaf.name'),
             Geometry::corners('payload.leaf.corners'),
+            Geometry::outline('payload.leaf.shape'),
             Geometry::name('payload.trims.*.name'),
             Geometry::margin('payload.trims.*.trimMargin'),
             Geometry::corners('payload.trims.*.corners', required: false),

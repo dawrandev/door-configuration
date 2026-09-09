@@ -115,6 +115,26 @@ class Geometry
         ];
     }
 
+    /**
+     * A free outline: the door's own silhouette, or anything else traced as a
+     * single closed loop rather than solved as a homography.
+     *
+     * Unlike `corners` this has no fixed count and no load-bearing order — it
+     * is a polygon, and the bench adds and removes points along it freely.
+     * Three is the floor for the same reason a trim piece's is: below that it
+     * encloses no area at all.
+     *
+     * @return array<string, mixed>
+     */
+    public static function outline(string $prefix): array
+    {
+        return [
+            $prefix => ['nullable', 'array', 'min:3', 'max:'.self::MAX_POINTS],
+            "{$prefix}.*.x" => self::coordinate(),
+            "{$prefix}.*.y" => self::coordinate(),
+        ];
+    }
+
     /** A three-language name. */
     public static function name(string $prefix): array
     {

@@ -33,6 +33,7 @@ class Leaf extends Model
             'aspect' => 'float',
             'handle_at' => 'array',
             'corners' => 'array',
+            'shape' => 'array',
             'keep_regions' => 'array',
             'trim_roles' => 'array',
             'handle_swappable' => 'boolean',

@@ -23,6 +23,11 @@ class AdminLeafResource extends LeafResource
             // rather than deleted and redone.
             'source' => $this->whenNotNull($this->source_path ? Storage::disk('public')->url($this->source_path) : null),
             'corners' => $this->whenNotNull($this->corners),
+            // The traced silhouette, so reopening a door shows the outline it
+            // was cut with instead of starting again from a bare rectangle.
+            // Bench-only: the mask is already baked into the published image's
+            // alpha, so the showroom has no use for the polygon itself.
+            'shape' => $this->whenNotNull($this->shape),
             'white' => (bool) $this->white,
             'handleChoice' => $this->handle_choice,
 

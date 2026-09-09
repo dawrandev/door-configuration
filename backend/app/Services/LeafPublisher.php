@@ -120,6 +120,11 @@ class LeafPublisher
             'handle_swappable' => $l['handleSwappable'],
             'handle_at' => $l['handleAt'] ?? null,
             'corners' => $l['corners'],
+            // Omitted preserves, explicit null clears — the same contract as
+            // keep_regions below. The bench sends null when the outline is
+            // still the plain rectangle it starts as, so a door that was never
+            // shaped keeps no mask and keeps its opaque image.
+            'shape' => array_key_exists('shape', $l) ? $l['shape'] : $existing?->shape,
             // Omitted preserves; explicit null clears. The bench never sends
             // this, and treating absence as "clear" would silently erase the
             // keep regions of any door that has them the first time it is

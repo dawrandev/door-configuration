@@ -263,4 +263,86 @@ class PublishLeafTest extends TestCase
 
         $this->assertNotSame($before, $this->getJson('/api/catalog/version')->json('version'));
     }
+
+    /**
+     * A traced silhouette survives the round trip.
+     *
+     * `corners` cannot carry this: it is fixed at four points because the
+     * homography is solved from exactly four correspondences. An outline has
+     * no such limit, which is the whole reason it is a separate column.
+     */
+    public function test_a_door_keeps_the_silhouette_it_was_cut_with(): void
+    {
+        // An arched top: five points, which `corners` could never hold.
+        // No whole numbers - JSON hands 1.0 back as int 1, and the round trip
+        // being checked here is the column's, not PHP's type juggling.
+        $shape = [
+            ['x' => 0.02, 'y' => 0.18], ['x' => 0.5, 'y' => 0.01],
+            ['x' => 0.98, 'y' => 0.18], ['x' => 0.98, 'y' => 0.99],
+            ['x' => 0.02, 'y' => 0.99],
+        ];
+
+        $this->publish(['leaf' => $this->leafPayload(['shape' => $shape])])->assertStatus(201);
+
+        $this->assertSame($shape, Leaf::first()->shape);
+
+        $this->actingAs($this->bench())
+            ->getJson('/api/admin/catalog')
+            ->assertJsonPath('leaves.0.shape', $shape);
+    }
+
+    /** The showroom has no use for the polygon — the mask is already baked
+     *  into the published image's alpha, and shipping it would only invite a
+     *  second, disagreeing implementation of the same cut. */
+    public function test_the_public_catalogue_does_not_carry_the_silhouette(): void
+    {
+        $this->publish(['leaf' => $this->leafPayload(['shape' => [
+            ['x' => 0.02, 'y' => 0.2], ['x' => 0.98, 'y' => 0.2], ['x' => 0.5, 'y' => 0.99],
+        ]])])->assertStatus(201);
+
+        $this->getJson('/api/catalog')->assertJsonMissingPath('leaves.0.shape');
+    }
+
+    /** A door that is simply a rectangle stores nothing, so nothing is masked
+     *  and its image stays opaque. */
+    public function test_a_door_without_a_silhouette_stores_none(): void
+    {
+        $this->publish(['leaf' => $this->leafPayload()])->assertStatus(201);
+
+        $this->assertNull(Leaf::first()->shape);
+    }
+
+    /**
+     * Republishing without the key preserves what is stored; an explicit null
+     * clears it. Same contract as keep_regions, and for the same reason: the
+     * silent alternative erases an operator's tracing with no way to tell.
+     */
+    public function test_an_omitted_silhouette_preserves_and_an_explicit_null_clears(): void
+    {
+        $shape = [['x' => 0.02, 'y' => 0.2], ['x' => 0.98, 'y' => 0.2], ['x' => 0.5, 'y' => 0.99]];
+        $this->publish(['leaf' => $this->leafPayload(['shape' => $shape])])->assertStatus(201);
+        $id = Leaf::first()->id;
+
+        $this->actingAs($this->bench())->post("/api/admin/leaves/{$id}", [
+            'payload' => json_encode(['leaf' => $this->leafPayload()]),
+            'image' => $this->jpeg(),
+        ], ['Accept' => 'application/json'])->assertStatus(200);
+        $this->assertSame($shape, Leaf::find($id)->shape, 'omitted should preserve');
+
+        $this->actingAs($this->bench())->post("/api/admin/leaves/{$id}", [
+            'payload' => json_encode(['leaf' => $this->leafPayload(['shape' => null])]),
+            'image' => $this->jpeg(),
+        ], ['Accept' => 'application/json'])->assertStatus(200);
+        $this->assertNull(Leaf::find($id)->shape, 'explicit null should clear');
+    }
+
+    /** Two points enclose no area — the same floor a trim piece has. */
+    public function test_a_two_point_silhouette_is_rejected(): void
+    {
+        $this->publish(['leaf' => $this->leafPayload(['shape' => [
+            ['x' => 0.1, 'y' => 0.1], ['x' => 0.9, 'y' => 0.9],
+        ]])])
+            ->assertStatus(422)
+            ->assertJsonValidationErrors('payload.leaf.shape');
+    }
 }

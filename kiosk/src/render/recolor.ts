@@ -269,6 +269,20 @@ export function cached(key: string, make: () => Promise<string | null>): Promise
   return p;
 }
 
+/**
+ * WebP, because a door is no longer always a rectangle.
+ *
+ * A door cut to its own silhouette — an arched top, a shaped edge — is
+ * published with the surround transparent, and compositeToCanvas carries that
+ * alpha through. JPEG cannot: it would flatten every transparent pixel to a
+ * solid block around the door. PNG only where a browser cannot encode WebP,
+ * the same fallback `encodeAlpha` uses at the bench.
+ */
+function encodeKeepingAlpha(c: HTMLCanvasElement, quality = 0.92): string {
+  const webp = c.toDataURL('image/webp', quality);
+  return webp.startsWith('data:image/webp') ? webp : c.toDataURL('image/png');
+}
+
 /** A leaf recoloured to the tint, hardware and ornaments kept original. */
 export function recolorLeaf(leaf: Leaf, tint: Tint): Promise<string | null> {
   return cached(`leaf|${leaf.id}|${tint.join(',')}|${sourceKey(leaf.image)}`, async () => {
@@ -276,7 +290,7 @@ export function recolorLeaf(leaf: Leaf, tint: Tint): Promise<string | null> {
     const { ctx, w, h } = drawAt(img, WORK_W);
     const src = ctx.getImageData(0, 0, w, h);
     const passes = derivePasses(src.data, w, h);
-    return compositeToCanvas(passes, tint, src, leaf.keep).toDataURL('image/jpeg', 0.92);
+    return encodeKeepingAlpha(compositeToCanvas(passes, tint, src, leaf.keep));
   });
 }
 

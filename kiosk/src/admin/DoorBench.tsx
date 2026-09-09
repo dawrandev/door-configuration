@@ -10,7 +10,7 @@ import type { DoorColor } from '../catalog/colors';
 import {
   Panel, PanelBody, PanelFooter, Label, Section, inp, AdminPrimaryButton, AdminGhostButton, Seg, Pad, Handle, DANGER, useToast, ROLE_ORDER, ROLE_META, RoleChip, MoveResize, TRACE, TraceShape, Loupe,
 } from './adminKit';
-import { bboxOfPoints, seedPoints, defaultRectFor, nearestLoop, toStoredTrim, toTrimState, type TrimPieceState } from './trimGeometry';
+import { bboxOfPoints, seedPoints, defaultRectFor, nearestLoop, insertIndexForPoint, toStoredTrim, toTrimState, type Point, type TrimPieceState } from './trimGeometry';
 import { maskTrim, useRender } from '../render/recolor';
 import type { TrimPiece, TrimRole } from '../catalog/types';
 
@@ -29,13 +29,40 @@ const NALICHNIK_ROLES: TrimRole[] = ['shaft', 'footL', 'footR', 'extra'];
 /** Adding a door walks these in order. The door itself is always cut; the
  *  two trim stages are each skippable, and each is judged on its own cut-out
  *  before moving on. */
-type Stage = 'door' | 'nalichnik' | 'korona' | 'finish';
+type Stage = 'door' | 'shape' | 'nalichnik' | 'korona' | 'finish';
 const STAGES: { id: Stage; label: string }[] = [
   { id: 'door', label: 'Eshik' },
+  { id: 'shape', label: 'Shakl' },
   { id: 'nalichnik', label: 'Nalichnik' },
   { id: 'korona', label: 'Korona' },
   { id: 'finish', label: 'Yakunlash' },
 ];
+
+/**
+ * The silhouette a door starts with: its whole rectangle.
+ *
+ * Kept as the yardstick rather than a boolean flag, so "has the operator
+ * actually shaped this door?" is answered by comparing against it. A door left
+ * alone, or dragged and dragged back, publishes `shape: null` and stays the
+ * opaque rectangle it has always been.
+ */
+const FULL_RECT: Point[] = [{ x: 0, y: 0 }, { x: 1, y: 0 }, { x: 1, y: 1 }, { x: 0, y: 1 }];
+const isFullRect = (pts: Point[]) =>
+  pts.length === FULL_RECT.length &&
+  pts.every((p, i) => Math.abs(p.x - FULL_RECT[i].x) < 1e-6 && Math.abs(p.y - FULL_RECT[i].y) < 1e-6);
+
+/** Clip a canvas to the traced silhouette, leaving everything outside it
+ *  transparent. `destination-in` keeps the pixels the new shape covers. */
+function clipToShape(c: HTMLCanvasElement, shape: Point[]): void {
+  const ctx = c.getContext('2d')!;
+  ctx.save();
+  ctx.globalCompositeOperation = 'destination-in';
+  ctx.beginPath();
+  shape.forEach((p, i) => (i ? ctx.lineTo(p.x * c.width, p.y * c.height) : ctx.moveTo(p.x * c.width, p.y * c.height)));
+  ctx.closePath();
+  ctx.fill();
+  ctx.restore();
+}
 /** Which roles each trim stage offers. */
 const STAGE_ROLES: Record<'nalichnik' | 'korona', TrimRole[]> = {
   nalichnik: ['shaft'],
@@ -134,6 +161,7 @@ function remapPieces(pieces: TrimPieceState[], from: Margin, to: Margin): TrimPi
 
 const STAGE_HINT: Record<Stage, string> = {
   door: 'Eshik yuzasining 4 burchagini belgilang — ramkani emas, tavaqani.',
+  shape: 'Eshik to‘g‘ri to‘rtburchak bo‘lmasa — masalan tepasi kamarli bo‘lsa — chetini shu yerda chizing. Chiziq ustiga bosib nuqta qo‘shiladi, nuqtaga ikki marta bosib o‘chiriladi. To‘rtburchak bo‘lsa, o‘tkazib yuboring.',
   nalichnik: 'Eshikning ikki yonidagi nalichniklarni chizing — tepasi emas, u korona. Bu eshikda bo‘lmasa, o‘tkazib yuboring.',
   korona: 'Eshik tepasidagi koronani chizing. Bu eshikda bo‘lmasa, o‘tkazib yuboring.',
   finish: 'Nomi, ranglari va qaysi qismlar bilan sotilishini belgilang.',
@@ -247,6 +275,15 @@ export function DoorBench({ onDone, edit }: { onDone: () => void; edit?: AdminLe
   // feedback was a single published result at the end.
   const [stage, setStage] = useState<Stage>('door');
   const onTrimStage = stage === 'nalichnik' || stage === 'korona';
+  /** The door's own outline, in fractions of the RECTIFIED leaf — the space
+   *  the four corners define, so nudging a corner leaves it in place. */
+  const [shape, setShape] = useState<Point[]>(FULL_RECT);
+  /** The rectified leaf, which is what the outline is traced on. Not the
+   *  padded canvas the trim stages use: a door's own edge is the edge of the
+   *  door, and the surround has nothing to do with it. */
+  const [shapeImg, setShapeImg] = useState<HTMLImageElement | null>(null);
+  const [shapeLens, setShapeLens] = useState<{ x: number; y: number } | null>(null);
+  const shapeDrag = useRef<number | null>(null);
   /** Fraction of the leaf's own width/height to reveal on every side —
    *  uniform rather than four independent sliders, since a door photographed
    *  square-on shows roughly as much casing on every side. */
@@ -313,6 +350,9 @@ export function DoorBench({ onDone, edit }: { onDone: () => void; edit?: AdminLe
     setWhite(edit.white ?? true);
     setSelected(new Set(edit.colorIds ?? colors.map((c) => c.id)));
     setTrimRoles(new Set(edit.trimRoles ?? DOOR_TRIM_ROLES));
+    // Absent means the door is a plain rectangle, which is what FULL_RECT is —
+    // so a door cut before outlines existed opens on the same shape it has.
+    setShape(edit.shape?.length ? edit.shape : FULL_RECT);
     setStage('door');
 
     // What this door traced last time, back as editable outlines. The backend
@@ -512,6 +552,50 @@ export function DoorBench({ onDone, edit }: { onDone: () => void; edit?: AdminLe
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [onTrimStage, img, corners, marginObj]);
 
+  /** The flattened door, which is the surface its own outline is traced on.
+   *  No margin: the surround belongs to the trim stages, not to this. */
+  useEffect(() => {
+    if (stage !== 'shape' || !img || corners.length !== 4) { setShapeImg(null); return; }
+    let live = true;
+    const t = window.setTimeout(() => {
+      try {
+        const c = rectify(img, corners as [Pt, Pt, Pt, Pt], 700);
+        stripHandle(c, handleSide);
+        if (white) neutraliseWhite(c);
+        const el = new Image();
+        el.onload = () => { if (live) setShapeImg(el); };
+        el.src = c.toDataURL('image/jpeg', 0.86);
+      } catch { /* a degenerate quad — the next corner change recovers */ }
+    }, 120);
+    return () => { live = false; window.clearTimeout(t); };
+  }, [stage, img, corners, handleSide, white]);
+
+  const shapeWrapRef = useRef<HTMLDivElement>(null);
+  const toShapeFrac = useCallback((cx: number, cy: number) => {
+    const r = shapeWrapRef.current!.getBoundingClientRect();
+    return { x: Math.min(Math.max(0, (cx - r.left) / r.width), 1), y: Math.min(Math.max(0, (cy - r.top) / r.height), 1) };
+  }, []);
+  const onShapeMove = (e: React.PointerEvent) => {
+    if (shapeDrag.current == null) return;
+    const p = toShapeFrac(e.clientX, e.clientY);
+    setShapeLens({ x: p.x * sDispW, y: p.y * sDispH });
+    setShape((pts) => pts.map((pt, i) => (i === shapeDrag.current ? p : pt)));
+  };
+  /** A press on the outline splits the segment it landed on, exactly as the
+   *  trim tracer does — the gesture is the same everywhere it is offered. */
+  const onShapeAddPoint = (e: React.PointerEvent) => {
+    if (e.button > 0 || shapeDrag.current != null) return;
+    const p = toShapeFrac(e.clientX, e.clientY);
+    const idx = insertIndexForPoint(shape, p);
+    setShape((pts) => [...pts.slice(0, idx), p, ...pts.slice(idx)]);
+    (e.target as Element).setPointerCapture(e.pointerId);
+    shapeDrag.current = idx;
+  };
+  /** Three points is the floor: below that the outline encloses nothing and
+   *  the mask would erase the whole door. */
+  const removeShapePoint = (index: number) =>
+    setShape((pts) => (pts.length <= 3 ? pts : pts.filter((_, i) => i !== index)));
+
   const toTrimFrac = useCallback((cx: number, cy: number) => {
     const r = trimWrapRef.current!.getBoundingClientRect();
     return { x: Math.min(Math.max(0, (cx - r.left) / r.width), 1), y: Math.min(Math.max(0, (cy - r.top) / r.height), 1) };
@@ -619,11 +703,20 @@ export function DoorBench({ onDone, edit }: { onDone: () => void; edit?: AdminLe
     setActiveTrimId(trim.find((t) => roles.includes(t.role))?.id ?? null);
   };
 
-  const check = async () => {
-    if (!img || corners.length !== 4) return;
-    setChecking(true);
-    await new Promise((r) => setTimeout(r, 20));
-    const canvas = rectify(img, corners as [Pt, Pt, Pt, Pt]);
+  /** Has the operator actually cut this door to a shape, or is it still the
+   *  rectangle every door starts as? */
+  const shaped = !isFullRect(shape);
+
+  /**
+   * The leaf exactly as it will be published: flattened, de-handled, white
+   * balanced if it is declared white, scaled down, and cut to its outline.
+   *
+   * One function for both the preview and the publish, because the preview's
+   * entire job is to be the published result — they had drifted already, with
+   * only the preview asking for a high-quality downscale.
+   */
+  const renderLeaf = (): HTMLCanvasElement => {
+    const canvas = rectify(img!, corners as [Pt, Pt, Pt, Pt]);
     stripHandle(canvas, handleSide);
     if (white) neutraliseWhite(canvas);
     const scale = Math.min(1, 820 / canvas.width);
@@ -633,7 +726,21 @@ export function DoorBench({ onDone, edit }: { onDone: () => void; edit?: AdminLe
     const sc = small.getContext('2d')!;
     sc.imageSmoothingQuality = 'high';
     sc.drawImage(canvas, 0, 0, small.width, small.height);
-    setResult(small.toDataURL('image/jpeg', 0.82));
+    if (shaped) clipToShape(small, shape);
+    return small;
+  };
+
+  /** WebP once a door has been cut to a shape: JPEG has no alpha and would
+   *  publish the transparent surround as a solid block around the door. An
+   *  uncut door keeps exactly the JPEG it has always had. */
+  const encodeLeaf = (c: HTMLCanvasElement) =>
+    shaped ? encodeAlpha(c, 0.9) : c.toDataURL('image/jpeg', 0.82);
+
+  const check = async () => {
+    if (!img || corners.length !== 4) return;
+    setChecking(true);
+    await new Promise((r) => setTimeout(r, 20));
+    setResult(encodeLeaf(renderLeaf()));
     setChecking(false);
   };
 
@@ -660,14 +767,7 @@ export function DoorBench({ onDone, edit }: { onDone: () => void; edit?: AdminLe
     if (!img || corners.length !== 4) return;
     // Render the door at full quality now — publishing never depends on
     // the optional check() above having been run.
-    const canvas = rectify(img, corners as [Pt, Pt, Pt, Pt]);
-    stripHandle(canvas, handleSide);
-    if (white) neutraliseWhite(canvas);
-    const scale = Math.min(1, 820 / canvas.width);
-    const small = document.createElement('canvas');
-    small.width = Math.round(canvas.width * scale);
-    small.height = Math.round(canvas.height * scale);
-    small.getContext('2d')!.drawImage(canvas, 0, 0, small.width, small.height);
+    const small = renderLeaf();
 
     const [TL, TR, BR, BL] = corners;
     const topW = Math.hypot(TR.x - TL.x, TR.y - TL.y);
@@ -685,6 +785,10 @@ export function DoorBench({ onDone, edit }: { onDone: () => void; edit?: AdminLe
         white,
         handleChoice: handleSide,
         corners: doorCorners,
+        // Always sent, never omitted: the backend preserves on absence, so a
+        // door the operator straightened back into a rectangle would otherwise
+        // keep a mask it no longer has. Explicit null is how a cut is undone.
+        shape: shaped ? shape : null,
         // "Every colour, including ones registered after today" is a mode of
         // its own, not an empty list — a door sold in no colours at all is a
         // different (if odd) statement, and the backend keeps them apart.
@@ -696,7 +800,7 @@ export function DoorBench({ onDone, edit }: { onDone: () => void; edit?: AdminLe
     };
 
     const files: { image?: Blob; source?: Blob; trimSource?: Blob } = {
-      image: dataUrlToBlob(small.toDataURL('image/jpeg', 0.82)),
+      image: dataUrlToBlob(encodeLeaf(small)),
       // Only a freshly uploaded photograph is a data URL. Reopening a door
       // hands back the STORED one as a plain url, and re-uploading it would
       // mean decoding a url as base64 — which threw, and took the whole
@@ -802,6 +906,8 @@ export function DoorBench({ onDone, edit }: { onDone: () => void; edit?: AdminLe
 
   const tDispW = paddedImg ? paddedImg.width * zoom : 0;
   const tDispH = paddedImg ? paddedImg.height * zoom : 0;
+  const sDispW = shapeImg ? shapeImg.width * zoom : 0;
+  const sDispH = shapeImg ? shapeImg.height * zoom : 0;
 
   return (
     <div style={{ display: 'flex', height: '100%', width: '100%', minHeight: 0 }}>
@@ -813,7 +919,7 @@ export function DoorBench({ onDone, edit }: { onDone: () => void; edit?: AdminLe
             <input type="file" accept="image/*" onChange={onFile} style={{ display: 'none' }} />
           </label>
         )}
-        {img && !onTrimStage && (
+        {img && !onTrimStage && stage !== 'shape' && (
           <div ref={wrapRef} style={{ position: 'relative', width: dispW, height: dispH, flexShrink: 0, margin: '0 auto', touchAction: 'none' }} onPointerMove={onMove} onPointerUp={() => { drag.current = null; setLens(null); }}>
             <img src={img.src} alt="" draggable={false} style={{ width: '100%', height: '100%', display: 'block', userSelect: 'none' }} />
             <svg style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', pointerEvents: 'none' }}>
@@ -823,6 +929,34 @@ export function DoorBench({ onDone, edit }: { onDone: () => void; edit?: AdminLe
               <Handle key={i} x={c.x * zoom} y={c.y * zoom} onPointerDown={(e) => { (e.target as Element).setPointerCapture(e.pointerId); drag.current = i; }} />
             ))}
             {lens && <Loupe src={img.src} dispW={dispW} dispH={dispH} x={lens.x} y={lens.y} />}
+          </div>
+        )}
+        {/* The door's own edge, traced on the flattened door. Unlike the four
+            corners above this is a free polygon — points are added along it and
+            removed from it, because a silhouette has no fixed number of sides
+            while a homography has exactly four correspondences. */}
+        {stage === 'shape' && shapeImg && (
+          <div
+            ref={shapeWrapRef}
+            style={{ position: 'relative', width: sDispW, height: sDispH, flexShrink: 0, margin: '0 auto', touchAction: 'none' }}
+            onPointerMove={onShapeMove}
+            onPointerUp={() => { shapeDrag.current = null; setShapeLens(null); }}
+            onPointerDown={onShapeAddPoint}
+          >
+            <img src={shapeImg.src} alt="" draggable={false} style={{ width: '100%', height: '100%', display: 'block', userSelect: 'none' }} />
+            <svg style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', pointerEvents: 'none' }}>
+              <TraceShape points={shape} color={COLOR.brass} w={sDispW} h={sDispH} />
+            </svg>
+            {shape.map((p, i) => (
+              <Handle
+                key={i}
+                x={p.x * sDispW}
+                y={p.y * sDispH}
+                onPointerDown={(e) => { e.stopPropagation(); (e.target as Element).setPointerCapture(e.pointerId); shapeDrag.current = i; }}
+                onDoubleClick={() => removeShapePoint(i)}
+              />
+            ))}
+            {shapeLens && <Loupe src={shapeImg.src} dispW={sDispW} dispH={sDispH} x={shapeLens.x} y={shapeLens.y} />}
           </div>
         )}
         {showTrimStudio && (
@@ -1140,6 +1274,19 @@ export function DoorBench({ onDone, edit }: { onDone: () => void; edit?: AdminLe
                   </>
                 )}
 
+              {stage === 'shape' && (
+                <Section title="Eshik cheti">
+                  <div style={{ ...TYPE.small, color: COLOR.inkSoft, marginBottom: 10 }}>
+                    {shaped
+                      ? `${shape.length} ta nuqta. Chetdan tashqarisi shaffof bo‘ladi.`
+                      : 'Hozircha to‘g‘ri to‘rtburchak — hech nima kesilmaydi.'}
+                  </div>
+                  <AdminGhostButton onClick={() => setShape(FULL_RECT)} disabled={!shaped}>
+                    To‘rtburchakka qaytarish
+                  </AdminGhostButton>
+                </Section>
+              )}
+
               {stage !== 'finish' && (
                 <Section title="Joylashuv">
                   <Label>Kattalashtirish — {(zoom * 100).toFixed(0)}%</Label>
@@ -1198,10 +1345,15 @@ export function DoorBench({ onDone, edit }: { onDone: () => void; edit?: AdminLe
                   <AdminGhostButton onClick={onDone} style={{ flex: '0 0 auto', width: 'auto', padding: '0 16px' }}>
                     ← Orqaga
                   </AdminGhostButton>
-                  <AdminPrimaryButton onClick={() => goStage('nalichnik')} disabled={!live} style={{ flex: 1 }}>
+                  <AdminPrimaryButton onClick={() => goStage('shape')} disabled={!live} style={{ flex: 1 }}>
                     Davom etish →
                   </AdminPrimaryButton>
                 </>
+              )}
+              {stage === 'shape' && (
+                <AdminPrimaryButton onClick={() => goStage('nalichnik')} style={{ flex: 1 }}>
+                  {shaped ? 'Davom etish →' : 'O‘tkazib yuborish →'}
+                </AdminPrimaryButton>
               )}
               {onTrimStage && (
                 <AdminPrimaryButton onClick={() => goStage(stage === 'nalichnik' ? 'korona' : 'finish')} style={{ flex: 1 }}>

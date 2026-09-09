@@ -27,6 +27,9 @@ export interface Catalog {
 export type AdminLeaf = Leaf & {
   source?: string;
   corners?: { x: number; y: number }[];
+  /** Bench-only: the published image already carries the cut in its alpha, so
+   *  the showroom never sees this. Here so reopening restores the outline. */
+  shape?: { x: number; y: number }[];
   white: boolean;
   handleChoice: 'left' | 'right' | 'none';
   colorMode: 'all' | 'list';
@@ -112,6 +115,10 @@ export interface LeafPayload {
     white: boolean;
     handleChoice: 'left' | 'right' | 'none';
     corners: { x: number; y: number }[];
+    /** The traced silhouette, in fractions of the rectified leaf. Null when
+     *  the door is a plain rectangle, which clears any stored one; OMITTED
+     *  would preserve it instead, so the bench always sends the key. */
+    shape?: { x: number; y: number }[] | null;
     colorMode: 'all' | 'list';
     colorIds?: string[];
     trimRoleMode: 'all' | 'list';
