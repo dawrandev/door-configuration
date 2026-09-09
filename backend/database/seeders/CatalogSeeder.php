@@ -47,13 +47,16 @@ class CatalogSeeder extends Seeder
 
     public function run(): void
     {
-        $this->pipeline = base_path('../kiosk/public');
+        $root = $this->resolvePipeline();
 
-        if (! File::isDirectory($this->pipeline)) {
-            $this->command?->error("kiosk/public not found at {$this->pipeline}");
+        if ($root === null) {
+            $this->command?->error('No catalogue assets found. Looked in '
+                .base_path('../kiosk/public').' and '.public_path());
 
             return;
         }
+
+        $this->pipeline = $root;
 
         DB::transaction(function () {
             $this->seedColors();
@@ -81,7 +84,13 @@ class CatalogSeeder extends Seeder
      */
     public function restoreOne(string $kind, string $id): bool
     {
-        $this->pipeline = base_path('../kiosk/public');
+        $root = $this->resolvePipeline();
+
+        if ($root === null) {
+            return false;
+        }
+
+        $this->pipeline = $root;
         $this->factoryReset = true;
 
         $seeded = false;
@@ -96,6 +105,33 @@ class CatalogSeeder extends Seeder
         });
 
         return $seeded;
+    }
+
+    /**
+     * Where the shipped photographs live.
+     *
+     * Two layouts hold them. A development checkout has kiosk/public, which is
+     * where the offline pipeline writes and therefore the authority. A deployed
+     * server has no kiosk/ at all: the deploy branch carries the built showroom
+     * instead, and vite has already copied the very same files into public/.
+     *
+     * Only the first was ever checked, so a first deploy seeded NOTHING - it
+     * printed one line and returned, leaving an empty catalogue and a showroom
+     * with no doors to show.
+     *
+     * The presence of assets/ is the test, not the directory itself: public/
+     * always exists, so testing that alone would pass in a source tree with no
+     * build installed and then fail once per photograph.
+     */
+    private function resolvePipeline(): ?string
+    {
+        foreach ([base_path('../kiosk/public'), public_path()] as $root) {
+            if (File::isDirectory($root.'/assets')) {
+                return $root;
+            }
+        }
+
+        return null;
     }
 
     /** One seed file, decoded. */
