@@ -85,12 +85,14 @@ origin saqlanib qolgani uchun verstakdagi import tugmasi ularni topadi
    DB_DATABASE=<baza>
    DB_USERNAME=<foydalanuvchi>
    DB_PASSWORD=<parol>
-
-   ADMIN_EMAIL=<verstak email>
-   ADMIN_PASSWORD=<boshlang'ich parol>
    ```
 
-   So'ng: `php artisan key:generate`
+   `APP_KEY` ni qo'lda yasashga urinmang — hozir `vendor/` yo'q, ya'ni
+   `php artisan` umuman ishlamaydi. Uni keyingi qadam o'zi yasaydi.
+
+   `ADMIN_EMAIL` / `ADMIN_PASSWORD` ga tegmang: ular faqat birinchi seed'da
+   ishlatiladi, parolni 7-qadamda qo'yasiz.
+
 
 6. **Birinchi deploy:** `bash server-deploy.sh`
 
