@@ -171,12 +171,21 @@ export function Admin() {
               </button>
             ))}
           </div>
-          <div style={{ display: 'flex', gap: 10, alignItems: 'center', flex: '1 1 240px', maxWidth: 420 }}>
+          {/*
+            * maxWidth belongs to the search box, not to the row. It used to sit
+            * here, on a group of five - and since every button carries
+            * whiteSpace: nowrap, they could neither shrink nor wrap and simply
+            * ran off the right edge of the screen, taking Chiqish and the add
+            * button with them.
+            */}
+          <div style={{ display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap', justifyContent: 'flex-end', flex: '1 1 320px' }}>
             <input
               value={query}
               onChange={(e) => setQuery(e.target.value)}
               placeholder="Nomi bo‘yicha qidirish…"
-              style={{ ...searchInput, flex: 1 }}
+              // minWidth:0 or a flex item refuses to shrink past its own
+              // intrinsic width, which is what overflows a narrow row.
+              style={{ ...searchInput, flex: '1 1 180px', minWidth: 0, maxWidth: 300 }}
             />
             <ImportLegacyButton onDone={() => void reload()} />
             <DiagnosticsButton />
